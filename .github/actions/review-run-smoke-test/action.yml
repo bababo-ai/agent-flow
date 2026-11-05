@@ -1,0 +1,64 @@
+name: 冒煙測試
+description: >
+  跑專案提供的冒煙測試腳本，失敗時貼留言並附上輸出。review.yml 的 review job
+  在審查通過、且有設定 test_setup 時跑。
+
+inputs:
+  github_token:
+    description: 貼 PR 留言用的 GitHub token
+    required: true
+  smoke_script:
+    description: 冒煙測試腳本路徑；留空就略過（輸出 result=none）
+    default: ""
+
+outputs:
+  result:
+    description: 冒煙測試結果（none / pass / fail）
+    value: ${{ steps.smoke.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    - id: smoke
+      shell: bash
+      env:
+        SMOKE: ${{ inputs.smoke_script }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        RUN_SHA: ${{ github.event.pull_request.head.sha }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const { execSync, execFileSync } = require('child_process');
+        const { SMOKE, GH_TOKEN, PR_NUMBER, RUN_SHA, GITHUB_REPOSITORY, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY } = process.env;
+
+        if (!SMOKE) {
+          fs.appendFileSync(GITHUB_OUTPUT, 'result=none\n');
+          process.exit(0);
+        }
+
+        let result = 'pass';
+        let output = '';
+        try {
+          output = execSync(`bash "${SMOKE}"`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+        } catch (err) {
+          result = 'fail';
+          output = (err.stdout ? err.stdout.toString() : '') + (err.stderr ? err.stderr.toString() : '');
+        }
+
+        fs.appendFileSync(GITHUB_OUTPUT, `result=${result}\n`);
+        if (GITHUB_STEP_SUMMARY) {
+          fs.appendFileSync(GITHUB_STEP_SUMMARY, `### 冒煙測試：${result}\n\`\`\`\n${output}\n\`\`\`\n`);
+        }
+
+        if (result === 'fail') {
+          const sha7 = RUN_SHA ? RUN_SHA.slice(0, 7) : '';
+          const body = `## 冒煙測試（commit \`${sha7}\`）\n\n**結論：失敗**\n\n\`\`\`\n${output}\n\`\`\``;
+          try {
+            execFileSync('gh', ['pr', 'comment', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--body', body], {
+              encoding: 'utf-8', env: { ...process.env, GH_TOKEN }
+            });
+          } catch (e) {}
+        }
+        EOF

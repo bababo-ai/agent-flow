@@ -60,6 +60,11 @@ copy "$here/templates/workflows/ai-review.yml" .github/workflows/ai-review.yml
 for f in ai-bug.md ai-feature.md idea.md; do
   copy "$here/templates/ISSUE_TEMPLATE/$f" ".github/ISSUE_TEMPLATE/$f"
 done
+if [ -d "$here/skills/agent-flow-issue" ]; then
+  mkdir -p "$target/.agents/skills/agent-flow-issue"
+  cp -r "$here/skills/agent-flow-issue/"* "$target/.agents/skills/agent-flow-issue/"
+  echo "寫入 Skill：.agents/skills/agent-flow-issue"
+fi
 echo "共用流程：${repo_src}@${sha}${tag:+（${tag}）}"
 echo "規則段落範本：$here/templates/AGENTS-ai-flow.md（依專案改寫後貼進 AGENTS.md）"
 
@@ -71,9 +76,12 @@ if [ "$labels" = true ]; then
   done <<'LABELS'
 bug|d73a4a|修錯誤：已規劃好、驗收條件寫好了（加上本身不會開工）
 feature|a2eeef|新功能：已規劃好、驗收條件寫好了（加上本身不會開工）
-ai:subscription|5319e7|開工：用 Claude 訂閱
-model:claude-opus-5-5|c5def5|指定模型（選用）
-model:claude-sonnet-5-5|c5def5|指定模型（選用）
+ai:claude|5319e7|開工：用 Claude 訂閱（雲端執行）
+ai:agy|5319e7|開工：用 agy（Google Antigravity）訂閱（需 self-hosted runner）
+model:claude-opus-5-5|c5def5|指定模型：Claude Opus 5.5（選用）
+model:claude-sonnet-5-5|c5def5|指定模型：Claude Sonnet 5.5（選用）
+model:gemini-2.5-pro|c5def5|指定模型：Gemini 2.5 Pro（選用）
+model:gemini-3.8-flash|c5def5|指定模型：Gemini 3.8 Flash（選用）
 blocked|b60205|AI 做不出來，等使用者處理
 round-1|fbca04|審查／測試後自動修改第 1 輪（workflow 管理）
 round-2|fbca04|審查／測試後自動修改第 2 輪（workflow 管理）

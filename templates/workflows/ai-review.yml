@@ -1,4 +1,4 @@
-name: AI 審查與測試
+name: AI Review & Test
 
 # PR 開啟或有新 commit 時：固定檢查 → 審查 Claude（只讀程式碼）→（選用）測試 Claude → 通知或叫醒開發修改。
 # 呼叫 __AI_DEV_FLOW_REPO__ 的共用流程（review.yml），設定說明見它的 README.md
@@ -49,8 +49,10 @@ jobs:
     with:
       # ↓ 依專案調整（全部選項與預設值見共用流程 review.yml 開頭的 inputs）
       dev_workflow: ai-dev.yml
-      # 可用的 AI 服務，跟 ai-dev.yml 的 providers 一樣
-      providers: subscription
+      # 可用的 AI 服務，跟 ai-dev.yml 的 providers 一樣（claude agy 等）
+      providers: claude agy
+      # agy 會自動跑在 agy_runs_on（預設 '["self-hosted"]'，需為已裝好並登入 agy 的 runner），不用額外設定
+      # agy_runs_on: '["self-hosted"]'
       # 另外要擋的檔案，例如 Node 專案的套件清單：^package\.json$|^package-lock\.json$
       blocked_extra: ""
       # PR 不能改的紀錄檔（空白分隔），例如 CHANGELOG.md TODO.md；空的就不檢查
@@ -58,8 +60,8 @@ jobs:
       records_base: develop
       # 專案自己的審查重點（會加在給審查 Claude 的指示後面）
       review_instructions: ""
-      # 審查跑在哪裡，用自己的電腦（self-hosted runner）時改成例如 '["self-hosted","my-runner"]'，見 docs/setup.md
-      # review_runs_on: '"ubuntu-latest"'
+      # claude 審查跑在哪裡，用自己的電腦（self-hosted runner）時改成例如 '["self-hosted","my-runner"]'，見 docs/setup.md
+      # runs_on: '"ubuntu-latest"'
       # 測試（選用）：設了 test_setup 才測試，沒設時審查通過就算通過
       # test_setup: .github/ai-test/setup.sh
       # test_prompt_file: .github/ai-test/prompt.md

@@ -1,0 +1,174 @@
+name: 開發沒完成或沒推新 commit 時通知
+description: >
+  開發 AI 跑完後檢查結果：PR 已經 MERGED／CLOSED 就不通知；issue 開工成功交給 PR 由審查流程接手通知；
+  沒完成，或完成但沒推新 commit（只回覆）時發 Telegram 告警。dev.yml 的 work job 用。
+
+inputs:
+  github_token:
+    description: 查 PR／issue 狀態用的 GitHub token
+    required: true
+  kind:
+    description: 目前是在改 issue 還是 PR（issue / PR）
+    required: true
+  number:
+    description: Issue 或 PR 編號
+    required: true
+  before_sha:
+    description: 開工前 PR 的 head commit（kind 為 PR 時才有值）
+    default: ""
+  provider:
+    description: 實際用的 AI 服務（claude / agy），決定看哪一步的執行結果
+    required: true
+  claude_outcome:
+    description: Claude Code 步驟的 outcome
+    default: ""
+  agy_outcome:
+    description: agy 步驟的 outcome
+    default: ""
+  telegram_bot_token:
+    description: 發 Telegram 告警用，留空就略過通知
+    default: ""
+  telegram_chat_id:
+    description: 發 Telegram 告警用，留空就略過通知
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        KIND: ${{ inputs.kind }}
+        NUMBER: ${{ inputs.number }}
+        BEFORE_SHA: ${{ inputs.before_sha }}
+        PROVIDER: ${{ inputs.provider }}
+        CLAUDE_OUTCOME: ${{ inputs.claude_outcome }}
+        AGY_OUTCOME: ${{ inputs.agy_outcome }}
+        TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token }}
+        TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_SERVER_URL: ${{ github.server_url }}
+      run: |
+        node << 'EOF'
+        const { execFileSync } = require('child_process');
+
+        const {
+          GH_TOKEN, KIND, NUMBER, BEFORE_SHA, PROVIDER,
+          CLAUDE_OUTCOME, AGY_OUTCOME,
+          TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+          RUN_URL, GITHUB_REPOSITORY, GITHUB_SERVER_URL
+        } = process.env;
+
+        const isPr = KIND === 'PR';
+        const ghKind = isPr ? 'pr' : 'issue';
+
+        function runGh(args) {
+          return execFileSync('gh', args, {
+            encoding: 'utf-8',
+            env: { ...process.env, GH_TOKEN }
+          }).trim();
+        }
+
+        function sleep(ms) {
+          return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function main() {
+          // 根據實際跑的 provider 決定看哪一步的結果
+          const outcome = PROVIDER === 'agy' ? AGY_OUTCOME : CLAUDE_OUTCOME;
+
+          // 1. PR 已經 MERGED 或 CLOSED 就不通知
+          if (isPr) {
+            let state = '';
+            try {
+              state = runGh(['pr', 'view', NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'state', '-q', '.state']);
+            } catch (err) {}
+
+            if (state === 'MERGED' || state === 'CLOSED') {
+              console.log(`PR #${NUMBER} 已經是 ${state}，不發通知`);
+              return;
+            }
+          }
+
+          let icon = '';
+          let headline = '';
+          let detail = '';
+
+          if (outcome === 'success') {
+            // issue 成功：AI 會自己開 PR 或留言，不用通知
+            if (!isPr) return;
+
+            let headNow = '';
+            for (let i = 0; i < 2; i++) {
+              try {
+                headNow = runGh(['pr', 'view', NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'headRefOid', '-q', '.headRefOid']);
+              } catch (err) {}
+
+              if (headNow && headNow !== BEFORE_SHA) break;
+              if (i === 0) await sleep(10000);
+            }
+
+            if (headNow && headNow !== BEFORE_SHA) {
+              console.log(`有推新 commit (${headNow.substring(0, 7)})，交給新一輪審查通知`);
+              return;
+            }
+
+            icon = '💬';
+            headline = '開發 AI 回覆了，沒有推新 commit';
+            detail = '請看 PR 留言決定下一步';
+          } else {
+            icon = '⚠️';
+            headline = '開發 AI 沒有完成';
+            detail = `結果：${outcome || '沒有執行'}（失敗、逾時或被取消），請看執行紀錄`;
+          }
+
+          console.log(`${headline}：${detail}`);
+
+          if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+            console.log('::warning::沒有設定 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID，略過 Telegram 通知');
+            return;
+          }
+
+          let title = '';
+          try {
+            title = runGh([ghKind, 'view', NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'title', '-q', '.title']);
+          } catch (err) {}
+
+          const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const label = isPr ? 'PR' : 'Issue';
+          const url = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/${isPr ? 'pull' : 'issues'}/${NUMBER}`;
+
+          const text = `${icon} <b>${esc(headline)}</b>\n\n<b>${label} #${NUMBER}</b>　${esc(title)}\n${esc(detail)}\n\n<i>${esc(GITHUB_REPOSITORY)}</i>`;
+
+          const payload = {
+            chat_id: TELEGRAM_CHAT_ID,
+            text,
+            parse_mode: 'HTML',
+            disable_web_page_preview: true,
+            reply_markup: {
+              inline_keyboard: [[
+                { text: `🔗 查看 ${label}`, url },
+                { text: '📋 執行紀錄', url: RUN_URL }
+              ]]
+            }
+          };
+
+          try {
+            const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+              console.log(`::warning::Telegram 通知發送失敗 (HTTP ${res.status})`);
+            }
+          } catch (err) {
+            console.log(`::warning::Telegram 通知發送異常: ${err.message}`);
+          }
+        }
+
+        main().catch(err => {
+          console.error('執行通知失敗:', err.message);
+        });
+        EOF

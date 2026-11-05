@@ -1,0 +1,68 @@
+name: 跑 agy 並取得結構化輸出
+description: >
+  組參數執行 agy、把結構化 JSON 輸出寫進 GITHUB_OUTPUT。review.yml 的 review job
+  審查與測試兩個階段共用這份邏輯；呼叫前請確認 runner 上已裝好 agy
+  （review.yml 開頭已做過一次 command -v agy 檢查，這裡不重複判斷）。
+
+inputs:
+  github_token:
+    description: agy 執行時 gh 相關操作用的 token（當 GH_TOKEN）
+    required: true
+  prompt_text:
+    description: 給 agy 的提示詞
+    required: true
+  schema:
+    description: 要求 agy 輸出的 JSON Schema（字串）
+    required: true
+  model:
+    description: agy 模型，留空用 agy 預設
+    default: ""
+  effort:
+    description: agy 思考力道，留空用 agy 預設
+    default: ""
+  extra_args:
+    description: 額外的 agy 旗標，空白分隔，例如 --sandbox 或 --dangerously-skip-permissions
+    default: ""
+  add_dir:
+    description: 額外放行 agy 存取的目錄
+    default: pr-head
+
+outputs:
+  structured_output:
+    description: agy 的結構化 JSON 輸出
+    value: ${{ steps.run.outputs.structured_output }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PROMPT_TEXT: ${{ inputs.prompt_text }}
+        SCHEMA: ${{ inputs.schema }}
+        MODEL: ${{ inputs.model }}
+        EFFORT: ${{ inputs.effort }}
+        EXTRA_ARGS: ${{ inputs.extra_args }}
+        ADD_DIR: ${{ inputs.add_dir }}
+      run: |
+        set -euo pipefail
+
+        agy_args=("-p" "$PROMPT_TEXT" "--output-format" "json" "--json-schema" "$SCHEMA")
+        if [ -n "$EXTRA_ARGS" ]; then
+          read -r -a extra <<< "$EXTRA_ARGS"
+          agy_args+=("${extra[@]}")
+        fi
+        if [ -n "$ADD_DIR" ]; then
+          agy_args+=("--add-dir" "$ADD_DIR")
+        fi
+        if [ -n "$MODEL" ]; then
+          agy_args+=("--model" "$MODEL")
+        fi
+        if [ -n "$EFFORT" ]; then
+          agy_args+=("--effort" "$EFFORT")
+        fi
+
+        output=$(agy "${agy_args[@]}")
+        eof="AGY_JSON_EOF_$(openssl rand -hex 8)"
+        { echo "structured_output<<$eof"; echo "$output"; echo "$eof"; } >> "$GITHUB_OUTPUT"

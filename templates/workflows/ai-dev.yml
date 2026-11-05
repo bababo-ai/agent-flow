@@ -1,13 +1,13 @@
-name: AI 開發
+name: AI Dev
 
 # 開發 Claude：呼叫 __AI_DEV_FLOW_REPO__ 的共用流程（dev.yml）。三種叫醒方式：
-# 1. 已規劃好的 issue（有 bug 或 feature 標籤、內文有「## 驗收條件」）加上 ai:subscription 標籤（或自己設定的其他 ai:<服務>） → 改程式、開 PR
+# 1. 已規劃好的 issue（有 bug 或 feature 標籤、內文有「## 驗收條件」）加上 ai:claude 或 ai:agy 標籤 → 改程式、開 PR
 # 2. 有寫入權限的人在 issue 或 PR 留言 @claude
 # 3. 審查與測試判定要修改時，由 ai-review.yml 用 workflow_dispatch 叫醒（帶 PR 編號與第幾輪）
 # 設定說明見 __AI_DEV_FLOW_REPO__ 的 README.md
 
 # run 名稱：issue 開工、issue 上的留言是 issue 編號；PR 上的留言、審查叫醒的修改是 PR 編號
-run-name: AI 開發 #${{ github.event.issue.number || github.event.pull_request.number || inputs.pr_number }}
+run-name: AI Dev #${{ github.event.issue.number || github.event.pull_request.number || inputs.pr_number }}
 
 on:
   issues:
@@ -46,8 +46,10 @@ jobs:
       round: ${{ inputs.round }}
       # ↓ 依專案調整（全部選項與預設值見共用流程 dev.yml 開頭的 inputs）
       base_branch: develop
-      # 可用的 AI 服務（標籤 ai:<名稱>）；要接其他相容 Anthropic API 的服務見 docs/providers.md，ai-review.yml 要設一樣的值
-      providers: subscription
+      # 可用的 AI 服務（標籤 ai:<名稱>）；支援 claude（Claude 訂閱）、agy（Antigravity 訂閱，需 self-hosted runner）或其他相容服務，見 docs/providers.md
+      providers: claude agy
+      # 執行環境：使用 agy 訂閱時請改為 '["self-hosted"]'（本機需預先安裝 agy 並登入）
+      # runs_on: '["self-hosted"]'
       # Claude 啟動前先裝好套件（Claude 的指令有隔離，自己裝會失敗）
       setup_command: ""
       # 放行給開發 Claude 的建置、測試指令，例如 Bash(npm run build),Bash(npm test)

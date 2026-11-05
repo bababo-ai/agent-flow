@@ -1,0 +1,74 @@
+name: 準備給審查 AI 的指示
+description: >
+  組出給審查 AI（只讀程式碼、對照驗收條件）的提示詞。review.yml 的 review job
+  在找出上次審查版本之後、呼叫 Claude／agy 之前跑。
+
+inputs:
+  base_sha:
+    description: PR 的 base commit SHA
+    required: true
+  head_sha:
+    description: PR 的 head commit SHA
+    required: true
+  prev_desc:
+    description: 上次審查版本的描述（review-find-prev-version 的輸出）
+    default: ""
+  records_files:
+    description: PR 不能改的紀錄檔（空白分隔、完整路徑）
+    default: ""
+  records_exempt_prefix:
+    description: 這個開頭的分支可以改紀錄檔
+    default: ""
+  review_instructions:
+    description: 專案自己的審查說明，加在審查提示詞後面
+    default: ""
+
+outputs:
+  text:
+    description: 組好的審查提示詞
+    value: ${{ steps.review_prompt.outputs.text }}
+
+runs:
+  using: composite
+  steps:
+    - id: review_prompt
+      shell: bash
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BASE_SHA: ${{ inputs.base_sha }}
+        HEAD_SHA: ${{ inputs.head_sha }}
+        PREV_DESC: ${{ inputs.prev_desc }}
+        RECORDS_FILES: ${{ inputs.records_files }}
+        RECORDS_EXEMPT: ${{ inputs.records_exempt_prefix }}
+        PROJECT: ${{ inputs.review_instructions }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const {
+          PR_NUMBER, BASE_SHA, HEAD_SHA, PREV_DESC,
+          RECORDS_FILES, RECORDS_EXEMPT, PROJECT,
+          GITHUB_REPOSITORY, GITHUB_OUTPUT
+        } = process.env;
+
+        const whole = `git -C pr-head diff ${BASE_SHA}...${HEAD_SHA}`;
+        let prompt = `你是「審查」角色，只讀程式碼、不改程式，不執行測試。REPO: ${GITHUB_REPOSITORY}，PR: #${PR_NUMBER}
+        PR 程式在 \`pr-head/\` 目錄；以目前目錄（base 分支）的 AGENTS.md 為準。
+
+        ${PREV_DESC}
+
+        1. 用 \`gh pr view\` 讀 PR 說明，用 \`gh issue view\` 讀驗收條件。
+        2. 檢視改動（使用 \`${whole}\` 或複審 diff），逐條對照驗收條件。
+        3. 標記問題為【高】/【中】/【低】，使用 mcp__github_inline_comment__create_inline_comment 留逐行評論。
+        4. 總評寫於 summary 欄位，不得自行於 PR 留總評。
+        5. 結論三選一：pass（無中以上問題）、changes（有中以上問題）、suspicious（發現安全或惡意風險）。
+        `;
+
+        if (RECORDS_FILES) {
+          prompt += `\nPR 不可修改受保護檔案：${RECORDS_FILES}${RECORDS_EXEMPT ? `（${RECORDS_EXEMPT} 分支除外）` : ''}。\n`;
+        }
+        if (PROJECT) prompt += `\n專案補充說明：\n${PROJECT}\n`;
+
+        const delim = `AI_REVIEW_EOF_${Date.now()}`;
+        fs.appendFileSync(GITHUB_OUTPUT, `text<<${delim}\n${prompt}\n${delim}\n`);
+        EOF

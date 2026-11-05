@@ -1,0 +1,189 @@
+name: 解析 AI 服務與模型
+description: >
+  依 issue／PR 的標籤（ai:<服務>、model:<名稱>、effort:<力道>）決定要用哪個 AI 服務與模型；
+  comment_body 有給的話，額外支援留言 @claude／@agy／--effort <值> 覆蓋。
+  dev.yml、review.yml 共用這份邏輯，改這裡兩邊都會套用——不要把邏輯複製回呼叫端的 workflow。
+
+inputs:
+  github_token:
+    description: 查標籤、查關聯 issue 用的 GitHub token
+    required: true
+  number:
+    description: Issue 或 PR 編號
+    required: true
+  providers:
+    description: 可用的 AI 服務，空白分隔；標籤是 ai:<名稱>
+    default: "claude agy"
+  models:
+    description: Claude 可用的模型，空白分隔；model:<名稱> 標籤在此清單找
+    default: ""
+  agy_models:
+    description: agy 可用的模型，空白分隔；model:<名稱> 標籤在此清單找
+    default: ""
+  agy_default_effort:
+    description: agy 預設的思考力道（low / medium / high / xhigh）
+    default: medium
+  comment_body:
+    description: 留言內容，用來判斷 @claude／@agy／--effort 覆蓋；不需要時留空（例如 review.yml）
+    default: ""
+
+outputs:
+  status:
+    description: ok / missing / conflict / error
+    value: ${{ steps.resolve.outputs.status }}
+  provider:
+    value: ${{ steps.resolve.outputs.provider }}
+  model:
+    value: ${{ steps.resolve.outputs.model }}
+  effort:
+    description: 只有 provider 是 agy 時才會有值
+    value: ${{ steps.resolve.outputs.effort }}
+  env:
+    description: 給 Claude Code 用的 KEY=VALUE（目前只有 ANTHROPIC_MODEL），provider 不是 claude 時是空字串
+    value: ${{ steps.resolve.outputs.env }}
+  summary:
+    description: 人看的一句話說明，用在留言與通知
+    value: ${{ steps.resolve.outputs.summary }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        NUMBER: ${{ inputs.number }}
+        PROVIDERS: ${{ inputs.providers }}
+        MODELS: ${{ inputs.models }}
+        AGY_MODELS: ${{ inputs.agy_models }}
+        AGY_DEFAULT_EFFORT: ${{ inputs.agy_default_effort }}
+        COMMENT_BODY: ${{ inputs.comment_body }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const { execFileSync } = require('child_process');
+
+        const {
+          GH_TOKEN, NUMBER, PROVIDERS, MODELS, AGY_MODELS,
+          COMMENT_BODY, AGY_DEFAULT_EFFORT,
+          GITHUB_REPOSITORY, GITHUB_OUTPUT
+        } = process.env;
+
+        function setOutput(key, value) {
+          fs.appendFileSync(GITHUB_OUTPUT, `${key}=${value}\n`);
+        }
+
+        function runGh(args) {
+          try {
+            return execFileSync('gh', args, {
+              encoding: 'utf-8',
+              env: { ...process.env, GH_TOKEN }
+            }).trim();
+          } catch (err) {
+            return '';
+          }
+        }
+
+        const labelsSet = new Set();
+
+        // 1. 抓出當前 Issue 或 PR 身上的標籤
+        const rawLabels = runGh(['api', `repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/labels`, '-q', '.[].name']);
+        if (rawLabels) {
+          rawLabels.split('\n').map(s => s.trim()).filter(Boolean).forEach(l => labelsSet.add(l));
+        }
+
+        // 2. 若當前是 PR，取得關聯 Issue 的標籤一併補進清單（不是 PR 時這行會失敗，runGh 會回傳空字串）
+        const closingIssues = runGh(['pr', 'view', NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'closingIssuesReferences', '-q', '.closingIssuesReferences[].number']);
+        if (closingIssues) {
+          for (const issueNum of closingIssues.split(/\s+/).filter(Boolean)) {
+            const issueLabels = runGh(['api', `repos/${GITHUB_REPOSITORY}/issues/${issueNum}/labels`, '-q', '.[].name']);
+            if (issueLabels) {
+              issueLabels.split('\n').map(s => s.trim()).filter(Boolean).forEach(l => labelsSet.add(l));
+            }
+          }
+        }
+
+        const providerList = (PROVIDERS || '').trim().split(/\s+/).filter(Boolean);
+
+        // 3. 檢查留言是否有直接指定 @agy 或 @claude 切換服務（必須在 providers 清單內才算數；留空就不會比對到）
+        let commentProvider = '';
+        const comment = COMMENT_BODY || '';
+        if (comment.includes('@agy') && providerList.includes('agy')) {
+          commentProvider = 'agy';
+        } else if (comment.includes('@claude') && providerList.includes('claude')) {
+          commentProvider = 'claude';
+        }
+
+        let found = [];
+        if (commentProvider) {
+          found = [commentProvider];
+        } else {
+          for (const p of providerList) {
+            if (labelsSet.has(`ai:${p}`)) {
+              found.push(p);
+            }
+          }
+        }
+
+        if (found.length === 0) {
+          const list = providerList.map(p => `ai:${p}`).join('、');
+          setOutput('status', 'missing');
+          setOutput('summary', `沒有指定 AI 服務（${list} 選一個）`);
+          process.exit(0);
+        }
+
+        if (found.length > 1) {
+          setOutput('status', 'conflict');
+          setOutput('summary', `同時指定了 ${found.map(p => `ai:${p}`).join(' ')}，只能選一個`);
+          process.exit(0);
+        }
+
+        const provider = found[0];
+        const modelList = (provider === 'agy' ? (AGY_MODELS || '') : (MODELS || ''))
+          .trim().split(/\s+/).filter(Boolean);
+
+        let model = '';
+        for (const m of modelList) {
+          if (labelsSet.has(`model:${m}`)) {
+            model = m;
+            break;
+          }
+        }
+
+        setOutput('provider', provider);
+        setOutput('model', model);
+
+        let envStr = '';
+        let summary = '';
+
+        if (provider === 'claude') {
+          if (model) envStr = `ANTHROPIC_MODEL=${model}`;
+          summary = `用 Claude 訂閱，模型：${model || '預設'}`;
+        } else if (provider === 'agy') {
+          // 思考力道優先順序：留言 --effort <值> > effort:* 標籤 > agy_default_effort
+          let effort = '';
+          const effortMatch = comment.match(/--effort\s+(low|medium|high|xhigh)/);
+          if (effortMatch) {
+            effort = effortMatch[1];
+          } else {
+            for (const e of ['low', 'medium', 'high', 'xhigh']) {
+              if (labelsSet.has(`effort:${e}`)) {
+                effort = e;
+                break;
+              }
+            }
+          }
+          effort = effort || AGY_DEFAULT_EFFORT || 'medium';
+          setOutput('effort', effort);
+          summary = `用 agy 訂閱（Self-hosted），模型：${model || '預設'}，力道：${effort}`;
+        } else {
+          setOutput('status', 'error');
+          setOutput('summary', `不支援的 AI 服務：${provider}（只支援 claude、agy）`);
+          process.exit(0);
+        }
+
+        setOutput('env', envStr);
+        setOutput('status', 'ok');
+        setOutput('summary', summary);
+        EOF

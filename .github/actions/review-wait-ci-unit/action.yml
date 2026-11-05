@@ -1,0 +1,82 @@
+name: 等 CI 的單元測試結果
+description: >
+  輪詢指定的 CI workflow（看同一個 head_sha 的 run），找出單元測試步驟的結論。
+  review.yml 的 review job 在冒煙測試之後、設有 ci_workflow 時跑。
+
+inputs:
+  github_token:
+    description: 查 CI run 用的 GitHub token
+    required: true
+  ci_workflow:
+    description: 單元測試看哪個 CI workflow 的結果（例如 ci.yml）
+    required: true
+  ci_step:
+    description: CI 裡單元測試步驟名稱包含的文字
+    default: npm test
+
+outputs:
+  result:
+    description: 單元測試結論（CI 的 conclusion，或 none／missing／timeout）
+    value: ${{ steps.unit.outputs.result }}
+  url:
+    description: CI run 的網址
+    value: ${{ steps.unit.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    - id: unit
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        CI_WORKFLOW: ${{ inputs.ci_workflow }}
+        CI_STEP: ${{ inputs.ci_step }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const { execFileSync } = require('child_process');
+        const { GH_TOKEN, HEAD_SHA, CI_WORKFLOW, CI_STEP, GITHUB_REPOSITORY, GITHUB_OUTPUT } = process.env;
+
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        function runGh(args) {
+          try { return execFileSync('gh', args, { encoding: 'utf-8', env: { ...process.env, GH_TOKEN } }).trim(); } catch (e) { return ''; }
+        }
+
+        async function poll() {
+          let result = 'timeout';
+          let url = '';
+          for (let i = 1; i <= 90; i++) {
+            const raw = runGh(['api', `repos/${GITHUB_REPOSITORY}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${HEAD_SHA}&event=pull_request&per_page=20`]);
+            let run = null;
+            try {
+              const parsed = JSON.parse(raw || '{}');
+              const list = (parsed.workflow_runs || []).sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+              run = list[list.length - 1];
+            } catch (e) {}
+
+            if (!run && i >= 18) { result = 'none'; break; }
+            if (run) {
+              url = run.html_url || '';
+              if (run.status === 'completed') {
+                const jRaw = runGh(['api', `repos/${GITHUB_REPOSITORY}/actions/runs/${run.id}/jobs?per_page=100`]);
+                result = 'missing';
+                try {
+                  const jobs = JSON.parse(jRaw || '{}');
+                  for (const j of (jobs.jobs || [])) {
+                    for (const s of (j.steps || [])) {
+                      if (s.name && s.name.includes(CI_STEP)) { result = s.conclusion || 'missing'; break; }
+                    }
+                    if (result !== 'missing') break;
+                  }
+                } catch (e) {}
+                break;
+              }
+            }
+            await sleep(10000);
+          }
+          fs.appendFileSync(GITHUB_OUTPUT, `result=${result}\nurl=${url}\n`);
+        }
+        poll();
+        EOF

@@ -1,0 +1,79 @@
+name: 處理審查結果並留言
+description: >
+  解析審查 AI 的結構化輸出，組出審查總評、貼到 PR 上。review.yml 的 review job
+  在呼叫 Claude／agy 做審查之後跑。
+
+inputs:
+  github_token:
+    description: 貼 PR 留言用的 GitHub token
+    required: true
+  output:
+    description: 審查 AI 的結構化輸出（JSON 字串）
+    default: ""
+
+outputs:
+  verdict:
+    description: 審查結論（pass / changes / suspicious / 空字串）
+    value: ${{ steps.review_result.outputs.verdict }}
+
+runs:
+  using: composite
+  steps:
+    - id: review_result
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        RUN_SHA: ${{ github.event.pull_request.head.sha }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        OUTPUT: ${{ inputs.output }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        RUNNER_TEMP: ${{ runner.temp }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const path = require('path');
+        const { execFileSync } = require('child_process');
+
+        const {
+          GH_TOKEN, PR_NUMBER, RUN_SHA, RUN_URL,
+          OUTPUT, GITHUB_REPOSITORY, GITHUB_OUTPUT, RUNNER_TEMP
+        } = process.env;
+
+        let data = {};
+        try { data = JSON.parse(OUTPUT || '{}'); } catch (e) {}
+
+        const verdict = typeof data.verdict === 'string' ? data.verdict : '';
+        console.log(`審查結論：${verdict || '（沒有結論）'}`);
+        fs.appendFileSync(GITHUB_OUTPUT, `verdict=${verdict}\n`);
+
+        let label = '審查沒有結論（不算通過）';
+        if (verdict === 'pass') label = '通過';
+        else if (verdict === 'changes') label = '需修改';
+        else if (verdict === 'suspicious') label = '可疑（已停止自動修改，待人工確認）';
+
+        const count = (k) => (typeof data[k] === 'number' ? Math.floor(data[k]) : '?');
+        const high = count('high');
+        const medium = count('medium');
+        const low = count('low');
+        const summary = (data.summary || '').trim();
+
+        const sha7 = RUN_SHA ? RUN_SHA.slice(0, 7) : '';
+        const lines = [
+          `## 審查總評（版本 ${sha7}）`, '',
+          verdict ? `**結論：${label}**（【高】${high}／【中】${medium}／【低】${low}）` : `**結論：${label}**\n\n審查 AI 未產出有效結論，請檢查 Actions 記錄。`,
+          summary ? `\n${summary}` : (verdict ? '\n（審查 AI 未回傳總評內容）' : ''),
+          '', `審查只讀程式碼，未執行測試。執行紀錄：${RUN_URL}`
+        ];
+
+        const summaryFile = path.join(RUNNER_TEMP || '/tmp', 'review-summary.md');
+        fs.writeFileSync(summaryFile, lines.join('\n'), 'utf-8');
+
+        try {
+          execFileSync('gh', ['pr', 'comment', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--body-file', summaryFile], {
+            encoding: 'utf-8', env: { ...process.env, GH_TOKEN }
+          });
+        } catch (err) {
+          console.error('貼 PR 審查留言失敗:', err.message);
+        }
+        EOF

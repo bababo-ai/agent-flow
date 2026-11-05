@@ -1,0 +1,79 @@
+name: 準備給測試 AI 的指示
+description: >
+  組出給測試 AI（實際操作驗證、不改程式）的提示詞，附上測試環境狀態、冒煙測試與
+  CI 單元測試結果。review.yml 的 review job 在等到 CI 結果之後跑。
+
+inputs:
+  started:
+    description: 測試環境是否啟動（test_setup 的 outputs.started）
+    default: "false"
+  setup_outcome:
+    description: 建立測試環境步驟的 outcome
+    default: ""
+  setup_desc:
+    description: 建立測試環境步驟的補充說明（test_setup 的 outputs.desc）
+    default: ""
+  test_prompt_file:
+    description: 給測試 AI 的工具說明（Markdown 檔路徑）
+    default: ""
+  smoke_result:
+    description: 冒煙測試結果
+    default: ""
+  ci_workflow:
+    description: 單元測試看哪個 CI workflow 的結果；有值才會在提示詞提到
+    default: ""
+  unit_result:
+    description: 單元測試結論
+    default: ""
+  unit_url:
+    description: 單元測試 CI run 網址
+    default: ""
+
+outputs:
+  text:
+    description: 組好的測試提示詞
+    value: ${{ steps.test_prompt.outputs.text }}
+
+runs:
+  using: composite
+  steps:
+    - id: test_prompt
+      shell: bash
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        STARTED: ${{ inputs.started }}
+        SETUP_OUTCOME: ${{ inputs.setup_outcome }}
+        SETUP_DESC: ${{ inputs.setup_desc }}
+        PROMPT_FILE: ${{ inputs.test_prompt_file }}
+        SMOKE_RESULT: ${{ inputs.smoke_result }}
+        CI_WORKFLOW: ${{ inputs.ci_workflow }}
+        UNIT_RESULT: ${{ inputs.unit_result }}
+        UNIT_URL: ${{ inputs.unit_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const {
+          PR_NUMBER, STARTED, SETUP_OUTCOME, SETUP_DESC,
+          PROMPT_FILE, SMOKE_RESULT, CI_WORKFLOW, UNIT_RESULT, UNIT_URL,
+          GITHUB_REPOSITORY, GITHUB_OUTPUT
+        } = process.env;
+
+        let prompt = `你是「測試」角色，實際操作驗證、不改程式。REPO: ${GITHUB_REPOSITORY}，PR: #${PR_NUMBER}
+        測試環境啟動狀態：${STARTED || 'false'}（建立腳本結果：${SETUP_OUTCOME}）。
+        ${SETUP_DESC || ''}
+        `;
+
+        if (PROMPT_FILE && fs.existsSync(PROMPT_FILE)) prompt += `\n測試工具與說明：\n${fs.readFileSync(PROMPT_FILE, 'utf-8')}\n`;
+        if (SMOKE_RESULT && SMOKE_RESULT !== 'none') prompt += `\n冒煙測試結果：${SMOKE_RESULT}。\n`;
+        if (CI_WORKFLOW) prompt += `\nCI 單元測試結果：${UNIT_RESULT || '無'}（連結：${UNIT_URL || '無'}）。\n`;
+
+        prompt += `
+        1. 讀取驗收條件並逐條以工具實際操作驗證。
+        2. 若失敗請重跑一次確認，並檢附指令與輸出。
+        3. 報告寫在 summary 欄位。結論：pass、fail、incomplete。
+        `;
+
+        const delim = `AI_TEST_EOF_${Date.now()}`;
+        fs.appendFileSync(GITHUB_OUTPUT, `text<<${delim}\n${prompt}\n${delim}\n`);
+        EOF

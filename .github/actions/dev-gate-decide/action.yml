@@ -1,0 +1,306 @@
+name: 決定開不開工
+description: >
+  依事件種類與「解析 AI 服務與模型」的結果，決定要不要開工：issue 檢查驗收條件與草稿標籤，
+  PR 檢查是否還是 OPEN；條件不齊時依情境留言或發 Telegram 告警。dev.yml 的 gate job 用。
+
+inputs:
+  github_token:
+    description: 查 issue／PR、留言用的 GitHub token
+    required: true
+  number:
+    description: Issue 或 PR 編號
+    required: true
+  status:
+    description: 解析 AI 服務與模型的結果（ok / missing / conflict / error）
+    required: true
+  summary:
+    description: 解析 AI 服務與模型的人看說明
+    required: true
+  providers:
+    description: 可用的 AI 服務，空白分隔；標籤是 ai:<名稱>
+    default: "claude agy"
+  base_branch:
+    description: PR 開到哪個分支
+    default: develop
+  is_pr:
+    description: 目前事件是不是針對 PR（"true" / "false"）
+    required: true
+  telegram_bot_token:
+    description: 發 Telegram 告警用，留空就略過通知
+    default: ""
+  telegram_chat_id:
+    description: 發 Telegram 告警用，留空就略過通知
+    default: ""
+
+outputs:
+  run:
+    description: 是否要開工（"true" 或空字串）
+    value: ${{ steps.decide.outputs.run }}
+
+runs:
+  using: composite
+  steps:
+    - id: decide
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        EVENT: ${{ github.event_name }}
+        NUMBER: ${{ inputs.number }}
+        STATUS: ${{ inputs.status }}
+        SUMMARY: ${{ inputs.summary }}
+        PROVIDERS: ${{ inputs.providers }}
+        BASE_BRANCH: ${{ inputs.base_branch }}
+        IS_PR: ${{ inputs.is_pr }}
+        ISSUE_URL: ${{ github.event.issue.html_url }}
+        TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token }}
+        TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const { execFileSync } = require('child_process');
+
+        const {
+          GH_TOKEN,
+          EVENT,
+          NUMBER,
+          STATUS,
+          SUMMARY,
+          PROVIDERS,
+          BASE_BRANCH,
+          IS_PR,
+          ISSUE_URL,
+          TELEGRAM_BOT_TOKEN,
+          TELEGRAM_CHAT_ID,
+          RUN_URL,
+          GITHUB_REPOSITORY,
+          GITHUB_OUTPUT,
+          GITHUB_STEP_SUMMARY
+        } = process.env;
+
+        const isPr = IS_PR === 'true';
+
+        // --- 輔助工具函式 ---
+
+        function appendStepSummary(text) {
+          if (GITHUB_STEP_SUMMARY) fs.appendFileSync(GITHUB_STEP_SUMMARY, text + '\n');
+        }
+
+        function setOutput(name, value) {
+          if (GITHUB_OUTPUT) fs.appendFileSync(GITHUB_OUTPUT, `${name}=${value}\n`);
+        }
+
+        // 透過 gh 執行 CLI 指令（傳入陣列避免字串跳脫問題）
+        function runGh(args) {
+          try {
+            return execFileSync('gh', args, {
+              encoding: 'utf-8',
+              env: { ...process.env, GH_TOKEN }
+            }).trim();
+          } catch (err) {
+            const stderr = err.stderr ? err.stderr.toString() : err.message;
+            throw new Error(`gh ${args.join(' ')} 失敗: ${stderr}`);
+          }
+        }
+
+        // 在 Issue 或 PR 下留言
+        function addComment(body) {
+          runGh(['api', `repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/comments`, '-f', `body=${body}`]);
+        }
+
+        // 發送 Telegram 告警
+        async function sendTelegram(title, lacking, hint) {
+          if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+            console.log('::warning::未設定 TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID，略過 Telegram 通知');
+            return;
+          }
+
+          const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const bulletLacking = lacking.split('\n').map(l => `• ${esc(l)}`).join('\n');
+          const text = `⛔ <b>issue 還不能開工</b>\n\n<b>Issue #${NUMBER}</b>　${esc(title)}\n${bulletLacking}\n\nAI 沒有開發（沒花額度）。${esc(hint)}\n\n<i>${esc(GITHUB_REPOSITORY)}</i>`;
+
+          const payload = {
+            chat_id: TELEGRAM_CHAT_ID,
+            text,
+            parse_mode: 'HTML',
+            disable_web_page_preview: true,
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '🔗 查看 issue', url: ISSUE_URL },
+                { text: '📋 執行紀錄', url: RUN_URL }
+              ]]
+            }
+          };
+
+          try {
+            const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+              console.log(`::warning::Telegram 通知發送失敗 (HTTP ${res.status})`);
+            }
+          } catch (err) {
+            console.log(`::warning::Telegram 通知發送異常: ${err.message}`);
+          }
+        }
+
+        // --- 業務邏輯 ---
+
+        // 檢查驗收條件段落是否有實質文字內容
+        function hasAcceptance(body) {
+          if (!body) return false;
+
+          // 1. 移除所有 HTML 註解
+          const clean = body.replace(/<!--[\s\S]*?-->/g, '');
+
+          // 2. 匹配 ## 或 ### 驗收條件，直到下一個 ## 或 ### 標題或「文字結尾」
+          //    注意：JS 沒有 \Z，文字結尾要寫成 (?![\s\S])
+          const match = clean.match(/^#{2,3}\s*驗收條件[：:\s]*$([\s\S]*?)(?=^#{1,3}\s|(?![\s\S]))/m);
+          if (!match) return false;
+
+          const sectionContent = match[1];
+
+          // 3. 移除清單符號 (-, *, +, 1.)、Checkbox ([ ], [x]) 及空白
+          const stripped = sectionContent
+            .replace(/^[ \t]*([-*+]|\d+[.)])[ \t]*(\[[ xX]?\])?[ \t]*/gm, '')
+            .replace(/\s+/g, '')
+            .trim();
+
+          return stripped.length > 0;
+        }
+
+        // 驗證 Issue 是否準備好開工
+        function checkIssueReady() {
+          let issue;
+          try {
+            const json = runGh(['issue', 'view', NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'title,body,labels']);
+            issue = JSON.parse(json);
+          } catch (err) {
+            console.error(`::error::讀取 Issue #${NUMBER} 失敗: ${err.message}`);
+            process.exit(1);
+          }
+
+          const labels = (issue.labels || []).map(l => l.name);
+          if (labels.includes('draft') || labels.includes('idea')) {
+            console.log('處於草稿或待規劃狀態（帶有 draft / idea 標籤），不開工');
+            return { ready: false, title: issue.title, lacking: '' };
+          }
+
+          if (!hasAcceptance(issue.body)) {
+            return {
+              ready: false,
+              title: issue.title,
+              lacking: '缺「## 驗收條件」段落，或段落裡還沒寫內容'
+            };
+          }
+
+          return { ready: true, title: issue.title, lacking: '' };
+        }
+
+        // 檢查 PR 是否仍處於 OPEN
+        function checkPrOpen() {
+          try {
+            const json = runGh(['pr', 'view', NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'state']);
+            const { state } = JSON.parse(json);
+            const isOpen = (state || '').toUpperCase() === 'OPEN';
+            if (!isOpen) {
+              console.log(`::notice::PR #${NUMBER} 已經是 ${state}（非 OPEN），不開工`);
+              appendStepSummary(`### 沒有開工：PR #${NUMBER} 已經是 ${state}`);
+            }
+            return { isOpen, state };
+          } catch (err) {
+            console.error(`::error::讀取 PR #${NUMBER} 狀態失敗: ${err.message}`);
+            process.exit(1);
+          }
+        }
+
+        // 條件未齊時處理通報
+        async function notifyNotReady(title, lacking, hint) {
+          const lackingLines = lacking.split('\n').map(l => `- ${l}`).join('\n');
+          appendStepSummary(`### 沒有開工：issue 還沒準備好\n${lackingLines}`);
+          await sendTelegram(title, lacking, hint);
+        }
+
+        // --- 主流程 ---
+
+        async function main() {
+          const aiLabels = (PROVIDERS || '').trim().split(/\s+/).filter(Boolean).map(p => `\`ai:${p}\``).join('／');
+          appendStepSummary(`### 開工檢查：${SUMMARY}`);
+
+          switch (EVENT) {
+            case 'workflow_dispatch': {
+              const { isOpen } = checkPrOpen();
+              if (!isOpen) process.exit(0);
+
+              if (STATUS === 'ok') {
+                setOutput('run', 'true');
+              } else {
+                console.log(`::warning::${SUMMARY}，不修改`);
+              }
+              break;
+            }
+
+            case 'issue_comment':
+            case 'pull_request_review_comment': {
+              switch (STATUS) {
+                case 'ok': {
+                  if (!isPr) {
+                    const { ready, title, lacking } = checkIssueReady();
+                    if (!ready) {
+                      if (lacking) await notifyNotReady(title, lacking, '補齊後再留一次 @claude 或 @agy 就會開工。');
+                      process.exit(0);
+                    }
+                  } else {
+                    const { isOpen, state } = checkPrOpen();
+                    if (!isOpen) {
+                      addComment(`收到留言，但這個 PR 已經是 ${state}（不是 OPEN），改了也不會進 ${BASE_BRANCH}，所以沒有開工。要修改請開新的 issue，或重新打開這個 PR 再留一次言。`);
+                      process.exit(0);
+                    }
+                  }
+
+                  setOutput('run', 'true');
+                  break;
+                }
+                case 'missing':
+                  addComment(`收到留言，但沒有指定 AI 服務，所以沒有開工：請在這裡（PR 也可以加在它要關閉的 issue）加上 ${aiLabels} 其中一個標籤，再留一次言。`);
+                  break;
+                default:
+                  addComment(`收到留言，但沒有開工：${SUMMARY}。修正後再留一次言。`);
+                  break;
+              }
+              break;
+            }
+
+            case 'issues': {
+              switch (STATUS) {
+                case 'ok':
+                  break;
+                case 'missing':
+                  console.log('還沒指定 AI 服務，等 ai:* 標籤加上再開工');
+                  process.exit(0);
+                default:
+                  addComment(`還沒開工：AI 服務的設定有問題：${SUMMARY}。修正後重新加上 \`ai:*\` 標籤就會開工。`);
+                  process.exit(0);
+              }
+
+              const { ready, title, lacking } = checkIssueReady();
+              if (!ready) {
+                if (lacking) await notifyNotReady(title, lacking, '補齊後重新留一次言或加標籤就會開工。');
+                process.exit(0);
+              }
+
+              addComment(`開工：${SUMMARY}`);
+              setOutput('run', 'true');
+              break;
+            }
+          }
+        }
+
+        main().catch(err => {
+          console.error(`::error::執行失敗: ${err.message}`);
+          process.exit(1);
+        });
+        EOF

@@ -1,0 +1,53 @@
+name: 設定推送前 PR 狀態檢查
+description: >
+  清掉上一次殘留的 pre-push hook（self-hosted runner 工作目錄會保留上一次的內容）；
+  若目前是在改 PR，額外裝上 pre-push hook，push 前先確認 PR 還是 OPEN 再放行。dev.yml 的 work job 用。
+
+inputs:
+  github_token:
+    description: hook 內用來查 PR 狀態的 GitHub token
+    required: true
+  pr_number:
+    description: 要改的 PR 編號；不是在改 PR 時留空，只會清掉舊 hook
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: 清掉上一次殘留的 pre-push hook
+      shell: bash
+      run: rm -f .git/hooks/pre-push
+
+    - name: 安裝推送前確認 PR 還是 OPEN 的 hook
+      if: inputs.pr_number != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const path = '.git/hooks/pre-push';
+
+        const hookContent = `#!/usr/bin/env bash
+        # 推送前檢查：PR #${process.env.PR_NUMBER} 不是 OPEN 就不推送
+        export GH_TOKEN="${process.env.GH_TOKEN}"
+        pr="${process.env.PR_NUMBER}"
+        repo="${process.env.GITHUB_REPOSITORY}"
+
+        state=""
+        for i in 1 2 3; do
+          state=$(gh pr view "$pr" -R "$repo" --json state -q .state 2>/dev/null) && break
+          state=""; sleep 3
+        done
+
+        if [ "$state" != "OPEN" ]; then
+          echo "推送被擋下：PR #$pr 目前是 \${state:-（查不到狀態）}，不是 OPEN，改了也不會進 base 分支。" >&2
+          exit 1
+        fi
+        `;
+
+        fs.writeFileSync(path, hookContent, { mode: 0o755 });
+        console.log(`Pre-push hook 已設定至 ${path}`);
+        EOF

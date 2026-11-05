@@ -13,7 +13,7 @@
 
 ## 流程
 
-1. 規劃好（寫好驗收條件）的 issue 才加 `bug` 或 `feature`，代表「可以開工」；沒有類型標籤的 issue 是「待規劃」。加上 `ai:subscription`（或專案設定的其他 `ai:<服務>`，代表用哪家 AI）時叫醒開發 agent；沒有指定用哪家的 PR 不審查、不測試
+1. 規劃好（寫好驗收條件）的 issue 才加 `bug` 或 `feature`，代表「可以開工」；沒有類型標籤的 issue 是「待規劃」。加上 `ai:claude` 或 `ai:agy`（或專案設定的其他 `ai:<服務>`，代表用哪家 AI）時叫醒開發 agent；沒有指定用哪家的 PR 不審查、不測試
    - 開工檢查：issue 要有 `bug`／`feature` 標籤，而且內文有「## 驗收條件」段落、底下有內容。缺任何一樣就不叫醒開發 agent（不花額度），拿掉 `ai:*` 標籤、只發 Telegram 通知；補齊後重新加 `ai:*` 標籤即可。在 issue 留言 `@claude` 也一樣兩樣都要有
 2. 開發 agent 改程式、開 PR 到 `<base 分支>`
 3. PR 開啟或有新 commit 時先跑審查；同一個 PR 只保留最新一次，舊的自動取消
@@ -37,7 +37,7 @@
 - 驗收條件的格式：單獨一行、一字不差的 `## 驗收條件` 標題（不能寫成「驗收」「驗收標準」或粗體字），底下至少一條實際內容（範本的註解、空的 `1.` 不算）
 - 驗收條件只寫審查與測試做得到的，要能逐條確認；只能讀程式碼確認的標「（讀程式碼確認即可）」；需要使用者自己確認的寫在「## 使用者驗證」，審查與測試不看這段
 - 需求要寫到開發 agent 不用自己猜：要用的套件、工具或做法寫出確定的一個；有取捨的地方先跟使用者決定再寫進 issue
-- 標籤：`bug`／`feature` = 可以開工（加上本身不會開工）；`ai:subscription`（或其他 `ai:<服務>`）= 開工；可再加 `model:claude-opus-5-5`／`model:claude-sonnet-5-5` 指定模型；`blocked` 由開發 agent 在做不出來時自己加；`round-N` 由 workflow 管理
+- 標籤：`bug`／`feature` = 可以開工（加上本身不會開工）；`ai:claude` 或 `ai:agy`（或其他 `ai:<服務>`）= 開工；可再加 `model:claude-opus-5-5`／`model:claude-sonnet-5-5`／`model:gemini-2.5-pro`／`model:gemini-3.8-flash` 指定模型；`blocked` 由開發 agent 在做不出來時自己加；`round-N` 由 workflow 管理
 - issue 不要要求 PR 修改受保護檔案（`AGENTS.md`、`CLAUDE.md`、`.claude/`、`.github/`、Dockerfile、compose 檔，以及專案另外指定的套件清單等）；需要改的話，開工前由使用者或本機 agent 直接改 `<base 分支>`
 
 ## 開發規則

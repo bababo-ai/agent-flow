@@ -1,0 +1,260 @@
+name: 綜合決策與通知
+description: >
+  依前面固定檢查、審查與測試結果決定 action（fix／done／stop），發 Telegram 通知，
+  需要修改時叫醒開發 workflow 並標記 round 標籤，否則依結果標記 Run 成功或失敗。
+  review.yml 的 review job 最後一步，if: always() 執行。
+
+inputs:
+  github_token:
+    description: 查 PR、留言、叫醒開發 workflow 用的 GitHub token
+    required: true
+  dev_workflow:
+    description: 呼叫端的開發 workflow 檔名，需要修改時用 workflow_dispatch 叫醒它
+    required: true
+  max_rounds:
+    description: 開發與審查、測試之間最多自動來回幾輪
+    required: true
+  records_base:
+    description: 紀錄檔檢查只看開到這個分支的 PR
+    default: develop
+  records_exempt_prefix:
+    description: 這個開頭的分支可以改紀錄檔
+    default: ""
+  telegram_bot_token:
+    description: 發 Telegram 通知用，留空就略過
+    default: ""
+  telegram_chat_id:
+    description: 發 Telegram 通知用，留空就略過
+    default: ""
+  test_enabled:
+    description: "是否有設定 test_setup（\"true\" / \"false\"）"
+    required: true
+  skip:
+    description: review-gate-check 的 skip 輸出
+    default: ""
+  closed:
+    description: review-gate-check 的 closed 輸出
+    default: ""
+  blocked_files:
+    description: review-gate-check 的 blocked_files 輸出
+    default: ""
+  records_bad:
+    description: review-gate-check 的 records_bad 輸出
+    default: ""
+  guard_done:
+    description: review-gate-check 的 guard_done 輸出
+    default: ""
+  ai_status:
+    description: resolve-ai-provider 的 status 輸出
+    default: ""
+  ai_summary:
+    description: resolve-ai-provider 的 summary 輸出
+    default: ""
+  review_verdict:
+    description: review-post-review-result 的 verdict 輸出
+    default: ""
+  test_verdict:
+    description: review-post-test-result 的 verdict 輸出
+    default: ""
+  smoke_result:
+    description: review-run-smoke-test 的 result 輸出
+    default: ""
+  job_status:
+    description: job.status（判斷是否被取消）
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        RUN_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_URL: ${{ github.event.pull_request.html_url }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        JOB_STATUS: ${{ inputs.job_status }}
+        DEV_WORKFLOW: ${{ inputs.dev_workflow }}
+        MAX_ROUNDS: ${{ inputs.max_rounds }}
+        RECORDS_BASE: ${{ inputs.records_base }}
+        RECORDS_EXEMPT: ${{ inputs.records_exempt_prefix }}
+        TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token }}
+        TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id }}
+        TEST_ENABLED: ${{ inputs.test_enabled }}
+        SKIP: ${{ inputs.skip }}
+        CLOSED: ${{ inputs.closed }}
+        BLOCKED_FILES: ${{ inputs.blocked_files }}
+        RECORDS_BAD: ${{ inputs.records_bad }}
+        GUARD_DONE: ${{ inputs.guard_done }}
+        AI_STATUS: ${{ inputs.ai_status }}
+        AI_SUMMARY: ${{ inputs.ai_summary }}
+        REVIEW_VERDICT: ${{ inputs.review_verdict }}
+        TEST_VERDICT: ${{ inputs.test_verdict }}
+        SMOKE_RESULT: ${{ inputs.smoke_result }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        node << 'EOF'
+        const { execFileSync } = require('child_process');
+
+        const {
+          GH_TOKEN, PR_NUMBER, RUN_SHA, PR_URL, RUN_URL, JOB_STATUS, DEV_WORKFLOW, MAX_ROUNDS,
+          RECORDS_BASE, RECORDS_EXEMPT, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+          TEST_ENABLED, SKIP, CLOSED, BLOCKED_FILES, RECORDS_BAD, GUARD_DONE,
+          AI_STATUS, AI_SUMMARY, REVIEW_VERDICT, TEST_VERDICT, SMOKE_RESULT, GITHUB_REPOSITORY
+        } = process.env;
+
+        function runGh(args) {
+          try { return execFileSync('gh', args, { encoding: 'utf-8', env: { ...process.env, GH_TOKEN } }).trim(); } catch (e) { return ''; }
+        }
+
+        async function sendTelegram(icon, headline, detail) {
+          if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+          const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const prTitle = runGh(['pr', 'view', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'title', '-q', '.title']);
+
+          let round = 0;
+          const rawLabels = runGh(['pr', 'view', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'labels', '-q', '.[labels[].name]']);
+          if (rawLabels) {
+            try {
+              for (const l of JSON.parse(rawLabels)) {
+                const m = l.match(/^round-(\d+)$/);
+                if (m) round = Math.max(round, parseInt(m[1], 10));
+              }
+            } catch (e) {}
+          }
+
+          let text = `${icon} <b>${esc(headline)}</b>\n\n<b>PR #${PR_NUMBER}</b>　${esc(prTitle)}`;
+          if (detail) text += `\n${esc(detail)}`;
+          if (round > 0) text += `\n🔁 已自動修改 ${round} 輪`;
+          text += `\n\n<i>${esc(GITHUB_REPOSITORY)}</i>`;
+
+          const payload = {
+            chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'HTML', disable_web_page_preview: true,
+            reply_markup: { inline_keyboard: [[{ text: '🔗 查看 PR', url: PR_URL }, { text: '📋 執行紀錄', url: RUN_URL }]] }
+          };
+
+          try {
+            await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            });
+          } catch (e) {}
+        }
+
+        async function main() {
+          // 1. 若跳過或 PR 已關閉，靜態退出
+          if (SKIP === 'true') {
+            console.log('::notice::commit 訊息帶有 [skip ci]，不審查、不測試、不通知');
+            process.exit(0);
+          }
+          if (CLOSED === 'true') {
+            console.log('::notice::PR 已經關閉或合併，終止流程');
+            process.exit(0);
+          }
+
+          // 若流程被取消
+          if (JOB_STATUS === 'cancelled') {
+            console.error('::error::流程被手動取消或因新 commit 被取消');
+            process.exit(1);
+          }
+
+          // 2. 確認是否為最新 commit
+          const headNow = runGh(['pr', 'view', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'headRefOid', '-q', '.headRefOid']);
+          if (headNow && headNow !== RUN_SHA) {
+            console.log('PR 已有更新的 commit，這次結果不處理');
+            process.exit(0);
+          }
+
+          // 3. 紀錄檔警告留言
+          if (RECORDS_BAD) {
+            const sha7 = RUN_SHA ? RUN_SHA.slice(0, 7) : '';
+            let msg = `## 紀錄檔檢查（commit \`${sha7}\`）\n\n**PR 不能改：${RECORDS_BAD}**\n\n- 請復原改動：\`git checkout origin/${RECORDS_BASE} -- ${RECORDS_BAD}\`\n`;
+            if (RECORDS_EXEMPT) msg += `- 若發版需要改動，請以 \`${RECORDS_EXEMPT}\` 開頭命名分支\n`;
+            try { runGh(['pr', 'comment', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--body', msg]); } catch (e) {}
+          }
+
+          // 4. 決策狀態解析
+          let action = 'stop';
+          let icon = '⚠️';
+          let headline = '';
+          let detail = '';
+          const testEnabled = TEST_ENABLED === 'true';
+
+          if (GUARD_DONE !== 'true') {
+            headline = '固定檢查未完成，需人工確認';
+          } else if (BLOCKED_FILES) {
+            icon = '✋';
+            headline = 'PR 改動受保護檔案，待確認';
+            detail = `改到：${BLOCKED_FILES}`;
+          } else if (AI_STATUS === 'missing') {
+            console.log(`${AI_SUMMARY}，不審查、不測試`);
+            process.exit(0);
+          } else if (AI_STATUS !== 'ok') {
+            headline = 'AI 設定有誤，未執行審查';
+            detail = AI_SUMMARY;
+          } else if (!REVIEW_VERDICT) {
+            headline = '審查未完成或未產出結論';
+          } else if (REVIEW_VERDICT === 'suspicious') {
+            icon = '🚨';
+            headline = '審查判定可疑，流程已終止';
+            detail = '請先檢視程式碼確認安全性';
+          } else if (RECORDS_BAD || REVIEW_VERDICT === 'changes') {
+            action = 'fix';
+          } else if (REVIEW_VERDICT !== 'pass') {
+            headline = '審查未給出明確結論';
+          } else if (!testEnabled) {
+            action = 'done';
+          } else if (!TEST_VERDICT) {
+            headline = '測試未完成或無明確結論';
+          } else if (TEST_VERDICT === 'fail' || SMOKE_RESULT === 'fail') {
+            action = 'fix';
+          } else if (TEST_VERDICT === 'incomplete') {
+            headline = '測試未完成，待人工確認';
+          } else if (TEST_VERDICT === 'pass' && (SMOKE_RESULT === 'pass' || SMOKE_RESULT === 'none' || !SMOKE_RESULT)) {
+            action = 'done';
+          } else {
+            headline = '測試未通過';
+          }
+
+          const maxRounds = parseInt(MAX_ROUNDS || '3', 10);
+
+          // 5. 自動叫醒開發工作流
+          if (action === 'fix') {
+            let round = 0;
+            const rawLabels = runGh(['pr', 'view', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'labels', '-q', '.[labels[].name]']);
+            if (rawLabels) {
+              try {
+                for (const l of JSON.parse(rawLabels)) {
+                  const m = l.match(/^round-(\d+)$/);
+                  if (m) round = Math.max(round, parseInt(m[1], 10));
+                }
+              } catch (e) {}
+            }
+
+            if (round >= maxRounds) {
+              await sendTelegram('🛑', `自動修改已達 ${maxRounds} 輪上限，請人工介入`, detail);
+              console.error(`::error::已達最大重試輪數 (${maxRounds})`);
+              process.exit(1);
+            } else {
+              const next = round + 1;
+              if (round > 0) runGh(['pr', 'edit', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--remove-label', `round-${round}`]);
+              runGh(['pr', 'edit', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--add-label', `round-${next}`]);
+              runGh(['workflow', 'run', DEV_WORKFLOW, '-R', GITHUB_REPOSITORY, '-f', `pr_number=${PR_NUMBER}`, '-f', `round=${next}`]);
+              console.log(`已啟動開發工作流叫醒開發 AI（第 ${next} 輪）`);
+              process.exit(1);
+            }
+          }
+
+          // 6. 成功或需人工處理
+          if (action === 'done') {
+            await sendTelegram('✅', testEnabled ? '審查與測試均通過' : '審查通過', '待合併');
+            console.log('審查與測試均通過！');
+            process.exit(0);
+          } else {
+            await sendTelegram(icon, headline, detail);
+            console.error(`::error::${headline}${detail ? ` - ${detail}` : ''}`);
+            process.exit(1);
+          }
+        }
+
+        main();
+        EOF

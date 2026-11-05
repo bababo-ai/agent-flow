@@ -1,0 +1,66 @@
+name: 處理測試結果並留言
+description: >
+  解析測試 AI 的結構化輸出，組出測試報告、貼到 PR 上。review.yml 的 review job
+  在呼叫 Claude／agy 做測試之後跑。
+
+inputs:
+  github_token:
+    description: 貼 PR 留言用的 GitHub token
+    required: true
+  smoke_result:
+    description: 冒煙測試結果，附在報告裡
+    default: ""
+  output:
+    description: 測試 AI 的結構化輸出（JSON 字串）
+    default: ""
+
+outputs:
+  verdict:
+    description: 測試結論（pass / fail / incomplete / 空字串）
+    value: ${{ steps.test_result.outputs.verdict }}
+
+runs:
+  using: composite
+  steps:
+    - id: test_result
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        RUN_SHA: ${{ github.event.pull_request.head.sha }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        SMOKE: ${{ inputs.smoke_result }}
+        OUTPUT: ${{ inputs.output }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const { execFileSync } = require('child_process');
+        const { GH_TOKEN, RUN_SHA, RUN_URL, SMOKE, OUTPUT, PR_NUMBER, GITHUB_REPOSITORY, GITHUB_OUTPUT } = process.env;
+
+        let data = {};
+        try { data = JSON.parse(OUTPUT || '{}'); } catch (e) {}
+
+        const verdict = typeof data.verdict === 'string' ? data.verdict : '';
+        fs.appendFileSync(GITHUB_OUTPUT, `verdict=${verdict}\n`);
+
+        let label = '沒有結論（不算通過）';
+        if (verdict === 'pass') label = '通過';
+        else if (verdict === 'fail') label = '失敗';
+        else if (verdict === 'incomplete') label = '沒做完（待人工確認）';
+
+        const sha7 = RUN_SHA ? RUN_SHA.slice(0, 7) : '';
+        const lines = [
+          `## 測試報告（版本 ${sha7}）`, '',
+          `**結論：${label}**`, ''
+        ];
+        if (SMOKE && SMOKE !== 'none') lines.push(`冒煙測試：${SMOKE}`, '');
+        lines.push(data.summary ? data.summary.trim() : '（測試 AI 未回傳報告）');
+        lines.push('', `執行紀錄與產出：${RUN_URL}`);
+
+        try {
+          execFileSync('gh', ['pr', 'comment', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--body', lines.join('\n')], {
+            encoding: 'utf-8', env: { ...process.env, GH_TOKEN }
+          });
+        } catch (e) {}
+        EOF

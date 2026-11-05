@@ -1,0 +1,81 @@
+name: 找出上次審查的版本
+description: >
+  從 PR 歷史留言找出上次審查總評對應的版本（供複審比對），寫入 .ai-prev-review.md
+  並組出要給審查 AI 看的版本描述。review.yml 的 review job 在 checkout pr-head/ 之後跑。
+
+inputs:
+  github_token:
+    description: 讀 PR 留言用的 GitHub token
+    required: true
+
+outputs:
+  desc:
+    description: 給審查 AI 看的版本描述（複審或第一次審查）
+    value: ${{ steps.prev.outputs.desc }}
+
+runs:
+  using: composite
+  steps:
+    - id: prev
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const { execFileSync } = require('child_process');
+
+        const { GH_TOKEN, PR_NUMBER, HEAD_SHA, GITHUB_REPOSITORY, GITHUB_OUTPUT } = process.env;
+        if (fs.existsSync('.ai-prev-review.md')) fs.unlinkSync('.ai-prev-review.md');
+
+        function runGit(args) {
+          try { return execFileSync('git', ['-C', 'pr-head', ...args], { encoding: 'utf-8' }).trim(); } catch (e) { return ''; }
+        }
+
+        let prev = '';
+        try {
+          const raw = execFileSync('gh', ['api', `repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments`, '--paginate'], {
+            encoding: 'utf-8', env: { ...process.env, GH_TOKEN }
+          });
+          const comments = JSON.parse(raw || '[]');
+          const valid = [];
+          const regex = /^## 審查總評（版本 ([0-9a-f]{7,40})）/m;
+
+          for (const c of comments) {
+            if (c.user?.login !== 'github-actions[bot]') continue;
+            const body = c.body || '';
+            const match = body.match(regex);
+            if (!match || body.includes('審查沒有結論（不算通過）')) continue;
+            if (HEAD_SHA.startsWith(match[1])) continue;
+            valid.push({ sha: match[1], body, created_at: c.created_at || '' });
+          }
+
+          valid.sort((a, b) => a.created_at.localeCompare(b.created_at));
+          const last = valid[valid.length - 1];
+
+          if (last) {
+            const full = runGit(['rev-parse', '--verify', '-q', `${last.sha}^{commit}`]);
+            let ancestorOk = false;
+            if (full && full !== HEAD_SHA) {
+              try {
+                execFileSync('git', ['-C', 'pr-head', 'merge-base', '--is-ancestor', full, HEAD_SHA]);
+                ancestorOk = true;
+              } catch (e) {}
+            }
+            if (full && full !== HEAD_SHA && ancestorOk) {
+              prev = full;
+              fs.writeFileSync('.ai-prev-review.md', last.body, 'utf-8');
+              console.log(`複審：上次審查版本 ${prev.slice(0, 7)}`);
+            }
+          }
+        } catch (err) {}
+
+        let desc = prev
+          ? `這是複審：上次審查版本為 \`${prev.slice(0, 7)}\`，總評已存於 \`.ai-prev-review.md\`。本次比對：\`git -C pr-head diff ${prev} ${HEAD_SHA}\`。`
+          : '這是第一次審查：請審查整個 PR 的改動。';
+
+        fs.appendFileSync(GITHUB_OUTPUT, `desc<<AI_REVIEW_EOF\n${desc}\nAI_REVIEW_EOF\n`);
+        EOF

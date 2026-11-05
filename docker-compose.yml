@@ -1,0 +1,29 @@
+services:
+  github-runner:
+    image: twhsu999/agent-flow-runner:0.0.1
+    container_name: agent-flow-runner
+    restart: unless-stopped
+    init: true   # 由 init 程序回收殭屍程序、轉發停止信號給 entrypoint.sh
+    stop_grace_period: 1m  # 停止時給 runner 時間取消正在跑的 job（預設只有 10 秒）
+    environment:
+      - GITHUB_URL=${GITHUB_URL:-}
+      # 只有「第一次註冊」才需要；註冊成功後可以從 .env 移除
+      - RUNNER_TOKEN=${RUNNER_TOKEN:-}
+      - RUNNER_NAME=${RUNNER_NAME:-agent-flow-runner}
+      - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,agy,linux}
+    volumes:
+      # agy（Google Antigravity）的登入憑證與設定，容器重啟不需重新登入
+      - agy-data:/home/runner/.gemini/antigravity-cli
+      # Runner 的註冊資訊，container 重建後不需要新的 token
+      - runner-state:/home/runner/runner-state
+      # 已移除 /var/run/docker.sock：image 內沒有 Docker CLI，掛了也用不到，
+      # 還會讓容器取得宿主機 root 等級的權限
+    # Bubblewrap 需要使用者 namespace 與系統呼叫支援
+    security_opt:
+      - seccomp:unconfined
+
+volumes:
+  agy-data:
+    name: agy-runner-credentials
+  runner-state:
+    name: agy-runner-state

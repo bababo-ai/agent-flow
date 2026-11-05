@@ -66,7 +66,7 @@ flowchart TD
 
 ### 1. Development Phase (Dev Flow)
 1. **Issue Creation**: The user or conversational agent (following [AGENT_SETUP.md](AGENT_SETUP.md)) drafts an issue with background context, goals, non-goals, and strict **`## 驗收條件` (Acceptance Criteria)**.
-2. **Labeling**: Add an issue type (`feature` or `bug`) and an AI provider (`ai:claude` for cloud Claude Code, or `ai:agy` for self-hosted Antigravity). Optionally specify `model:*` or `effort:*`.
+2. **Labeling**: Add an issue type (`feature` or `bug`). If specifying a model (`model:*`) or reasoning effort (`effort:*`), **apply them before (or simultaneously when) adding `ai:*`**, because adding an `ai:*` label (`ai:claude` or `ai:agy`) triggers the dev workflow immediately.
 3. **Start Gate Check**:
    - Skips if the issue has a `draft` or `idea` label.
    - Verifies the presence of the exact `## 驗收條件` header and non-empty criteria.
@@ -132,7 +132,7 @@ See "Shared Workflow Reference" below for the full input/secret/label reference 
 |---|---|
 | `ai:<provider>` (e.g. `ai:claude`, `ai:agy`) | Selects which AI service runs; exactly one must be present. Allowed values are controlled by `providers` |
 | `model:<name>` | Picks a model (e.g. `model:claude-sonnet-5-5`); must also appear in `models`/`agy_models`, otherwise the provider's default is used |
-| `effort:<low\|medium\|high\|xhigh>` | `agy` only; a `--effort <value>` mention takes priority over the label |
+| `effort:<low\|medium\|high\|xhigh>` | `agy` only; specify reasoning effort (**Note**: must be added before `ai:*` or at issue creation since adding `ai:*` starts execution immediately; a `--effort <value>` comment takes priority over the label) |
 | `draft` / `idea` | On an issue, blocks work even if `ai:*` is present |
 | `blocked` | Added by the dev agent when it's stuck and needs human input |
 | `round-N` | Auto-managed by `review.yml` when changes are requested; stops at `max_rounds` and alerts a human |

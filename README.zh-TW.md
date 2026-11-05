@@ -65,7 +65,7 @@ flowchart TD
 
 ### 1. 開發階段 (Dev Flow)
 1. **開立 Issue**：使用者或對話 Agent（依據 [AGENT_SETUP.md](AGENT_SETUP.md)）起草 Issue，填妥背景、要/不要做什麼，以及**嚴格的 `## 驗收條件`**。
-2. **標記標籤**：標上類型（`feature` 或 `bug`）與 AI 服務（`ai:claude` 雲端訂閱 或 `ai:agy` 本機 Runner 訂閱）。亦可標註模型 `model:*` 或思考力道 `effort:*`。
+2. **標記標籤**：標上類型（`feature` 或 `bug`）。若欲指定模型 `model:*` 或思考力道 `effort:*`，**必須在加上 `ai:*` 前（或建立 Issue 時同時）標好**，因為一旦加上 `ai:*` 標籤（如 `ai:claude` 或 `ai:agy`）就會立即觸發 GitHub Actions 開工。
 3. **開工守衛檢查 (Gate Check)**：
    - 檢查是否帶有 `draft` / `idea` 標籤（若有則視為草稿，不開工）。
    - 檢查是否有一字不差的 `## 驗收條件` 段落且含有實質內容。
@@ -131,7 +131,7 @@ flowchart TD
 |---|---|
 | `ai:<provider>`（如 `ai:claude`、`ai:agy`） | 指定要用哪個 AI 服務開工／審查，必須剛好選一個；`providers` 參數控制允許哪些值 |
 | `model:<名稱>` | 指定模型（例如 `model:claude-sonnet-5-5`），需同時出現在 `models`／`agy_models` 參數清單中才會生效，沒標就用 AI 服務自己的預設模型 |
-| `effort:<low\|medium\|high\|xhigh>` | 只對 `agy` 有效，指定思考力道；留言 `--effort <值>` 的優先權比標籤更高 |
+| `effort:<low\|medium\|high\|xhigh>` | 只對 `agy` 有效，指定思考力道（**注意**：因加上 `ai:*` 標籤會立即觸發開工，若要自訂力道需在標 `ai:*` 之前先標好，或建立 Issue 時同時加上）；留言 `--effort <值>` 的優先權比標籤更高 |
 | `draft` / `idea` | 開在 Issue 上代表還在規劃，不會開工（即使同時有 `ai:*` 標籤） |
 | `blocked` | 開發 Agent 卡住做不出來時自己加上，代表需要人工補充資訊 |
 | `round-N` | `review.yml` 判定需要修改時自動加上／遞增，達到 `max_rounds` 就停止並通知人工介入 |

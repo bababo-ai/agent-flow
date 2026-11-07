@@ -165,7 +165,7 @@ jobs:
       - name: 找出要改的分支與工作模式
         id: target
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || secrets.GH_TOKEN || github.token }}
           EVENT: ${{ github.event_name }}
           NUMBER: ${{ github.event.issue.number || github.event.pull_request.number || inputs.pr_number }}
           IS_PR: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null }}
@@ -307,7 +307,7 @@ jobs:
         if: needs.gate.outputs.provider == 'agy'
         timeout-minutes: ${{ inputs.claude_timeout_minutes }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || secrets.GH_TOKEN || github.token }}
           PROMPT_TEXT: ${{ steps.prompt.outputs.text }}
           MODEL: ${{ needs.gate.outputs.model }}
           EFFORT: ${{ needs.gate.outputs.effort }}
@@ -358,6 +358,7 @@ jobs:
         run: |
           echo "執行 self-hosted runner 工作目錄清理..."
           rm -f .git/hooks/pre-push
+          git config --unset-all url."https://x-access-token:${{ secrets.BOT_TOKEN || secrets.GH_TOKEN || github.token }}@github.com/".insteadOf 2>/dev/null || true
           git config --unset-all url."https://x-access-token:${{ github.token }}@github.com/".insteadOf 2>/dev/null || true
           git checkout -- . 2>/dev/null || true
           git clean -fd 2>/dev/null || true

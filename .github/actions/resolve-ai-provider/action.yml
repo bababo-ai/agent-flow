@@ -94,13 +94,37 @@ runs:
         }
 
         // 2. 若當前是 PR，取得關聯 Issue 的標籤一併補進清單（不是 PR 時這行會失敗，runGh 會回傳空字串）
-        const closingIssues = runGh(['pr', 'view', NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'closingIssuesReferences', '-q', '.closingIssuesReferences[].number']);
-        if (closingIssues) {
-          for (const issueNum of closingIssues.split(/\s+/).filter(Boolean)) {
-            const issueLabels = runGh(['api', `repos/${GITHUB_REPOSITORY}/issues/${issueNum}/labels`, '-q', '.[].name']);
-            if (issueLabels) {
-              issueLabels.split('\n').map(s => s.trim()).filter(Boolean).forEach(l => labelsSet.add(l));
+        const prViewRaw = runGh(['pr', 'view', NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'closingIssuesReferences,body']);
+        if (prViewRaw) {
+          try {
+            const prData = JSON.parse(prViewRaw);
+            const issueNumbers = new Set();
+
+            if (Array.isArray(prData.closingIssuesReferences)) {
+              for (const item of prData.closingIssuesReferences) {
+                if (item && item.number) {
+                  issueNumbers.add(String(item.number));
+                }
+              }
             }
+
+            if (prData.body) {
+              const keywordPattern = /\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s*:?\s*#(\d+)\b/gi;
+              for (const match of prData.body.matchAll(keywordPattern)) {
+                if (match[1]) {
+                  issueNumbers.add(match[1]);
+                }
+              }
+            }
+
+            for (const issueNum of issueNumbers) {
+              const issueLabels = runGh(['api', `repos/${GITHUB_REPOSITORY}/issues/${issueNum}/labels`, '-q', '.[].name']);
+              if (issueLabels) {
+                issueLabels.split('\n').map(s => s.trim()).filter(Boolean).forEach(l => labelsSet.add(l));
+              }
+            }
+          } catch (err) {
+            // 解析失敗時維持原樣不中斷
           }
         }
 

@@ -77,9 +77,9 @@ on:
         type: number
         default: 30
       max_rounds:
-        description: 開發與審查、測試之間最多自動來回幾輪
+        description: 開發與審查、測試之間最多自動來回幾輪（設 0 則 review 沒過不自動退回修改，停下待人工確認）
         type: number
-        default: 3
+        default: 0
       # ---- 測試（選用）：test_setup 空的就不測試，審查通過就算通過 ----
       test_setup:
         description: 建立測試環境的腳本（呼叫端 base 分支裡的路徑，用 bash 執行）

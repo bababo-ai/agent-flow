@@ -215,10 +215,16 @@ runs:
             headline = '測試未通過';
           }
 
-          const maxRounds = parseInt(MAX_ROUNDS || '3', 10);
+          const maxRounds = parseInt(MAX_ROUNDS ?? '0', 10);
 
           // 5. 自動叫醒開發工作流
           if (action === 'fix') {
+            if (maxRounds <= 0) {
+              await sendTelegram('✋', '審查或測試未通過，需人工確認', detail);
+              console.error('::error::審查或測試未通過（已設定不自動來回修改，停下待人工確認）');
+              process.exit(1);
+            }
+
             let round = 0;
             const rawLabels = runGh(['pr', 'view', PR_NUMBER, '-R', GITHUB_REPOSITORY, '--json', 'labels', '-q', '.[labels[].name]']);
             if (rawLabels) {

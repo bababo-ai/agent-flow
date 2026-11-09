@@ -262,7 +262,7 @@ PR 程式在 `pr-head/` 目錄；以目前目錄（base 分支）的 AGENTS.md �
 | `review_instructions` | `""` | 專案自己的審查重點，接在審查提示詞後面 |
 | `providers` / `models` / `agy_models` / `agy_default_effort` | 同 `dev.yml` | AI 服務與模型選擇規則 |
 | `review_max_turns` | `30` | 審查 AI 最多回合數 |
-| `max_rounds` | `3` | 開發與審查/測試之間最多自動來回幾輪，達到上限就停下通知人工 |
+| `max_rounds` | `0` | 開發與審查/測試之間最多自動來回幾輪，預設 `0`（不自動退回修改，停下通知人工） |
 | `test_setup` | `""` | 建立測試環境的腳本路徑；**留空代表不測試，審查通過就算通過** |
 | `test_prompt_file` | `""` | 給測試 AI 的工具說明文件路徑 |
 | `test_allowed_tools` | `""` | 額外放行給測試 AI 的工具 |

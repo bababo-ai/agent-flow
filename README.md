@@ -263,7 +263,7 @@ Triggered by the caller's `ai-review.yml` on `pull_request_target` (`opened`/`sy
 | `review_instructions` | `""` | Project-specific review guidance appended to the prompt |
 | `providers` / `models` / `agy_models` / `agy_default_effort` | same as `dev.yml` | AI service/model selection |
 | `review_max_turns` | `30` | Max turns for the review AI |
-| `max_rounds` | `3` | Max automatic dev↔review/test round trips before escalating to a human |
+| `max_rounds` | `0` | Max automatic dev↔review/test round trips before escalating to a human (default `0`: do not auto-retry, wait for manual action) |
 | `test_setup` | `""` | Script that provisions the test environment; **empty means no testing — a review pass is the final verdict** |
 | `test_prompt_file` | `""` | Markdown file describing tools available to the test AI |
 | `test_allowed_tools` | `""` | Extra tools allowed for the test AI |

@@ -23,6 +23,7 @@
 ### 開發規則
 
 - 從預設分支開分支，命名 `ai/issue-<編號>-<英文簡述>`；PR 開到預設分支，說明裡寫 `Closes #<編號>`
+- Commit 訊息：一律使用英文 Conventional Commits 格式（如 `feat: add ...` 或 `fix: resolve ...`）
 - PR 說明要寫：改了什麼、影響、自己怎麼驗證的、沒驗證到什麼，以及「後續待辦」段落（這次沒做、之後要做或要注意的事，沒有就寫「無」）
 - 變更記錄：專案其他段落有規定寫法就照做並同步更新；沒有規定就不用
 - 受保護檔案：`AGENTS.md`、`CLAUDE.md`、`.claude/`、`.github/`、Dockerfile、compose 檔。除非 issue 明確要求，不要修改；改到的 PR 會被固定檢查擋下，等使用者人工審查

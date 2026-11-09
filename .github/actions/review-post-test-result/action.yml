@@ -40,6 +40,9 @@ runs:
 
         let data = {};
         try { data = JSON.parse(OUTPUT || '{}'); } catch (e) {}
+        if (data.structured_output && typeof data.structured_output === 'object') {
+          data = data.structured_output;
+        }
 
         const verdict = typeof data.verdict === 'string' ? data.verdict : '';
         fs.appendFileSync(GITHUB_OUTPUT, `verdict=${verdict}\n`);

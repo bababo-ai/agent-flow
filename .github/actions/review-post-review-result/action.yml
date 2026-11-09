@@ -42,6 +42,9 @@ runs:
 
         let data = {};
         try { data = JSON.parse(OUTPUT || '{}'); } catch (e) {}
+        if (data.structured_output && typeof data.structured_output === 'object') {
+          data = data.structured_output;
+        }
 
         const verdict = typeof data.verdict === 'string' ? data.verdict : '';
         console.log(`審查結論：${verdict || '（沒有結論）'}`);

@@ -304,7 +304,7 @@ jobs:
           prompt_text: ${{ steps.review_prompt.outputs.text }}
           model: ${{ needs.gate.outputs.ai_model }}
           effort: ${{ needs.gate.outputs.ai_effort }}
-          extra_args: --sandbox
+          extra_args: --sandbox --dangerously-skip-permissions
           schema: '{"type":"object","properties":{"verdict":{"type":"string","enum":["pass","changes","suspicious"]},"high":{"type":"integer","minimum":0},"medium":{"type":"integer","minimum":0},"low":{"type":"integer","minimum":0},"summary":{"type":"string"}},"required":["verdict","high","medium","low","summary"]}'
 
       # 輸出：verdict

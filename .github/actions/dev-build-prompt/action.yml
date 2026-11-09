@@ -95,10 +95,10 @@ runs:
           }
         }
 
-        const newPrDesc = `從 \`${BASE}\` 開分支，命名 \`${PREFIX}${NUMBER}-<英文簡述>\`；照 issue 改程式，照 AGENTS.md 的規則驗證、寫變更記錄。commit 並 push，用 \`gh pr create --base ${BASE}\` 開 PR；說明照 AGENTS.md 的規則寫，包含「後續待辦」段落（這次沒做、之後要做或要注意的事，沒有就寫「無」），最後一行寫 \`Closes #${NUMBER}\``;
+        const newPrDesc = `從 \`${BASE}\` 開分支，命名 \`${PREFIX}${NUMBER}-<英文簡述>\`；照 issue 改程式，照 AGENTS.md 的規則驗證、寫變更記錄。commit（一律使用英文 Conventional Commits 格式，如 feat: ... 或 fix: ...）並 push，用 \`gh pr create --base ${BASE}\` 開 PR；說明照 AGENTS.md 的規則寫，包含「後續待辦」段落（這次沒做、之後要做或要注意的事，沒有就寫「無」），最後一行寫 \`Closes #${NUMBER}\``;
         const beforePushDesc = `push 前先用 \`gh pr view ${NUMBER} --json state -q .state\` 確認還是 \`OPEN\`；不是 \`OPEN\`（已合併或關閉）就不要 push，用 \`gh pr comment\` 說明改了什麼、沒推上去的原因後停止。git push 被推送前檢查擋下時也一樣，不要用 \`--no-verify\` 繞過`;
 
-        const pushSameBranch = 'commit 並 push 到同一個分支，不要開新的 PR';
+        const pushSameBranch = 'commit（一律使用英文 Conventional Commits 格式）並 push 到同一個分支，不要開新的 PR';
 
         let promptParts = [
           `你是「開發」角色。REPO: ${GITHUB_REPOSITORY}`

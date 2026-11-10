@@ -6,8 +6,14 @@ name: AI Dev
 # 3. 審查與測試判定要修改時，由 ai-review.yml 用 workflow_dispatch 叫醒（帶 PR 編號與第幾輪）
 # 設定說明見 __AI_DEV_FLOW_REPO__ 的 README.md
 
-# run 名稱：issue 開工、issue 上的留言是 issue 編號；PR 上的留言、審查叫醒的修改是 PR 編號
-run-name: AI Dev #${{ github.event.issue.number || github.event.pull_request.number || inputs.pr_number }}
+# run 名稱：優先讀取 Issue 標題或 PR 標題，若無法讀取則優雅退回至 #編號
+run-name: >-
+  ${{
+    github.event.issue.title ||
+    github.event.pull_request.title ||
+    inputs.title ||
+    format('AI Dev #{0}', github.event.issue.number || github.event.pull_request.number || inputs.pr_number)
+  }}
 
 on:
   issues:
@@ -26,6 +32,10 @@ on:
         description: 第幾輪修改
         required: true
         type: string
+      title:
+        description: 任務標題（選填）
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -34,10 +44,23 @@ permissions:
   id-token: write
   actions: read
 
-# 不在這裡設 concurrency：共用流程在 job 上自己排隊（設在這裡的話，跟開工無關的標籤事件也會占排隊位置，可能擠掉真正的開工）
+concurrency:
+  group: ai-dev-${{ github.event.issue.number || github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
 
 jobs:
   ai:
+    # 守門條件：
+    # 1. 如果是 labeled 事件，必須是開工標籤 (ai: 開頭，如 ai:agy / ai:claude 等)
+    # 2. 如果是 comment 事件，必須是真人留言且包含呼叫指令 (@claude / @agy)
+    # 3. 如果是 workflow_dispatch 則照常允許
+    if: >-
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'issues' && startsWith(github.event.label.name, 'ai:')) ||
+      ((github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
+        !endsWith(github.event.comment.user.login, '[bot]') &&
+        (contains(github.event.comment.body, '@claude') || contains(github.event.comment.body, '@agy'))
+      )
     # 用 commit 編號鎖定共用流程的版本；升級時改成新的 commit，先在一個專案試過再套到其他專案
     uses: __AI_DEV_FLOW_REPO__/.github/workflows/dev.yml@__AI_DEV_FLOW_REF__
     secrets: inherit

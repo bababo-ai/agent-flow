@@ -100,7 +100,7 @@ if [ "$rules" = true ]; then
     echo "寫入規則段落：${rules_dst#"$target"/}"
   fi
   rm -f "$block"
-  echo "（AGENTS.md／CLAUDE.md 是受保護檔案，要直接 commit 到預設分支，不能走 AI 開 PR）"
+  echo "（AGENTS.md／CLAUDE.md 是受保護檔案，要直接 commit 到 base 分支，不能走 AI 開 PR）"
 fi
 
 if [ "$labels" = true ]; then

@@ -14,7 +14,7 @@
 
 1. issue 有 `bug` 或 `feature` 標籤代表「可以開工」（本身不會開工）；加上 `ai:claude`、`ai:agy`（或其他 `ai:<服務>`）時叫醒開發 agent；沒有指定用哪家的 PR 不審查、不測試
    - 開工檢查：要有 `bug`／`feature` 標籤，而且內文有「## 驗收條件」段落、底下有內容；缺任何一樣就不叫醒開發 agent，拿掉 `ai:*` 標籤並發 Telegram 通知。在 issue 留言 `@claude` 也一樣
-2. 開發 agent 改程式、開 PR 到 repo 的預設分支
+2. 開發 agent 改程式、開 PR 到指定的 base 分支
 3. PR 開啟或有新 commit 時先跑審查；同一個 PR 只保留最新一次，舊的自動取消
 4. 審查通過才跑測試（專案有設定測試時）；都通過就通知使用者
 5. 審查「需修改」或測試「失敗」時，由 workflow 叫醒開發 agent（告知 PR 編號與第幾輪），修完推上新 commit，回到第 3 步
@@ -22,7 +22,7 @@
 
 ### 開發規則
 
-- 從預設分支開分支，命名 `ai/issue-<編號>-<英文簡述>`；PR 開到預設分支，說明裡寫 `Closes #<編號>`
+- 照指示從指定的 base 分支開分支，命名 `ai/issue-<編號>-<英文簡述>`；PR 開到該 base 分支，說明裡寫 `Closes #<編號>`
 - Commit 訊息：一律使用英文 Conventional Commits 格式（如 `feat: add ...` 或 `fix: resolve ...`）
 - PR 說明要寫：改了什麼、影響、自己怎麼驗證的、沒驗證到什麼，以及「後續待辦」段落（這次沒做、之後要做或要注意的事，沒有就寫「無」）
 - 變更記錄：專案其他段落有規定寫法就照做並同步更新；沒有規定就不用
@@ -63,4 +63,4 @@
 - 合併前確認分支上沒有進行中或排隊中的 workflow（`gh run list --branch <分支> --status in_progress` 與 `--status queued` 都要是空的）
 - 合併一律用 `gh pr merge <編號> --match-head-commit <通過的 commit>`
 - issue 內文要有單獨一行、一字不差的 `## 驗收條件`（不能寫成「驗收」「驗收標準」或粗體），底下至少一條實際內容；開單請用 agent-flow-issue skill
-- issue 不要要求 PR 修改受保護檔案；需要改的話，開工前由使用者或本機 agent 直接改預設分支
+- issue 不要要求 PR 修改受保護檔案；需要改的話，開工前由使用者或本機 agent 直接改 base 分支

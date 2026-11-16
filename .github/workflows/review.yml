@@ -64,7 +64,7 @@ on:
       models:
         description: Claude 可用的模型，空白分隔
         type: string
-        default: claude-opus-5-5 claude-sonnet-5-5
+        default: claude-opus-5-5 claude-sonnet-5-5 claude-fable-5-2 claude-haiku-4-5
       agy_models:
         description: agy 可用的模型，空白分隔
         type: string

@@ -47,7 +47,7 @@ curl -sSL https://raw.githubusercontent.com/bababo-ai/agent-flow/main/skills/age
 - **保護檔案**：需求中**嚴禁**要求修改 `.github/`、`AGENTS.md`、`CLAUDE.md`、`Dockerfile`、`compose.yml`（Workflow 會自動攔截）。
 
 ### 步驟 3：決定 AI 服務標籤
-- 雲端 Claude 訂閱：`ai:claude`（可搭配 `model:claude-sonnet-5-5` 或 `model:claude-opus-5-5`）
+- 雲端 Claude 訂閱：`ai:claude`（可搭配 `model:claude-sonnet-5-5`、`model:claude-opus-5-5`、`model:claude-fable-5-2` 或 `model:claude-haiku-4-5`）
 - 本機 Antigravity (agy) 訂閱：`ai:agy`（可搭配 `model:gemini-3.8-flash`、`model:gemini-2.5-pro`，與 `effort:medium` 等）
 
 ### 步驟 4：確認並使用 `gh issue create` 發布

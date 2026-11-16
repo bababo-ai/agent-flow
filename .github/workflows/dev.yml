@@ -276,12 +276,22 @@ jobs:
           comment_body: ${{ github.event.comment.body }}
           project_instructions: ${{ inputs.project_instructions }}
 
+      - name: 整理 Claude 認證 Token
+        if: needs.gate.outputs.provider != 'agy'
+        id: sanitize_token
+        env:
+          RAW_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          CLEAN_TOKEN=$(tr -d '\r\n ' <<< "$RAW_TOKEN")
+          echo "::add-mask::$CLEAN_TOKEN"
+          echo "token=$CLEAN_TOKEN" >> "$GITHUB_OUTPUT"
+
       - id: claude
         if: needs.gate.outputs.provider != 'agy'
         uses: anthropics/claude-code-action@6d5ae526d25ce88daa2200be073e1a373167f064 # v1.0.265
         timeout-minutes: ${{ inputs.claude_timeout_minutes }}
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_code_oauth_token: ${{ steps.sanitize_token.outputs.token }}
           bot_name: "claude[bot]"
           bot_id: "209825114"
           show_full_output: ${{ github.event.repository.private }}

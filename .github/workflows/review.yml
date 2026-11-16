@@ -268,13 +268,23 @@ jobs:
           records_exempt_prefix: ${{ inputs.records_exempt_prefix }}
           review_instructions: ${{ inputs.review_instructions }}
 
+      - name: 整理 Claude 認證 Token
+        if: needs.gate.outputs.ai_provider != 'agy'
+        id: sanitize_token
+        env:
+          RAW_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          CLEAN_TOKEN=$(tr -d '\r\n ' <<< "$RAW_TOKEN")
+          echo "::add-mask::$CLEAN_TOKEN"
+          echo "token=$CLEAN_TOKEN" >> "$GITHUB_OUTPUT"
+
       - id: review_claude
         if: needs.gate.outputs.ai_provider != 'agy'
         uses: anthropics/claude-code-action@6d5ae526d25ce88daa2200be073e1a373167f064 # v1.0.265
         env:
           ANTHROPIC_MODEL: ${{ needs.gate.outputs.ai_model }}
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_code_oauth_token: ${{ steps.sanitize_token.outputs.token }}
           allowed_bots: "claude"
           github_token: ${{ github.token }}
           prompt: ${{ steps.review_prompt.outputs.text }}
@@ -365,7 +375,7 @@ jobs:
         env:
           ANTHROPIC_MODEL: ${{ needs.gate.outputs.ai_model }}
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_code_oauth_token: ${{ steps.sanitize_token.outputs.token }}
           allowed_bots: "claude"
           github_token: ${{ github.token }}
           prompt: ${{ steps.test_prompt.outputs.text }}

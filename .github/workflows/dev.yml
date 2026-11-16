@@ -349,6 +349,7 @@ jobs:
       # =========================================================================
       - name: 中斷時救援保留未完成變更 (Rescue Commit)
         if: ${{ always() && steps.target.outputs.kind == 'issue' && (steps.claude.outcome == 'failure' || steps.agy.outcome == 'failure') }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.BOT_TOKEN || secrets.GH_TOKEN || github.token }}
           BASE_BRANCH: ${{ inputs.base_branch }}
@@ -358,10 +359,8 @@ jobs:
         shell: bash
         run: |
           set -e
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git config url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # 清除因中斷、強制終止或上次殘留的 git lock 檔（如 .git/config.lock、.git/index.lock）
+          find .git -name "*.lock" -delete 2>/dev/null || rm -f .git/config.lock .git/index.lock .git/HEAD.lock 2>/dev/null || true
 
           CURRENT_BRANCH=$(git branch --show-current || true)
           DIRTY=$(git status --porcelain || true)
@@ -378,13 +377,15 @@ jobs:
 
             if [ -n "$DIRTY" ]; then
               git add -A
-              git commit -m "chore(wip): auto-save progress before failure or turn limit" || true
+              git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" \
+                commit -m "chore(wip): auto-save progress before failure or turn limit" || true
             fi
 
             EXISTING_PR=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$TARGET_BRANCH" --state open --json number -q '.[0].number' 2>/dev/null || true)
+            REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
             if [ -n "$EXISTING_PR" ] && [ -z "$DIRTY" ]; then
               echo "分支 $TARGET_BRANCH 已開啟 PR #$EXISTING_PR 且無未提交修改，無需重複救援。"
-            elif git push -u origin "$TARGET_BRANCH" --force-with-lease || git push -u origin "$TARGET_BRANCH" --force; then
+            elif git push "$REMOTE_URL" "HEAD:refs/heads/$TARGET_BRANCH" --force-with-lease || git push "$REMOTE_URL" "HEAD:refs/heads/$TARGET_BRANCH" --force; then
               gh issue comment "$ISSUE_NUMBER" --body "⚠️ 開發因超過對話輪數上限或逾時中斷。已自動將目前的程式碼進度保存至分支 \`$TARGET_BRANCH\`。可在 issue 留言 \`@${PROVIDER} 在 $TARGET_BRANCH 繼續處理\` 進行接關。" || true
             else
               echo "::warning::推送救援分支 $TARGET_BRANCH 失敗"
@@ -417,6 +418,7 @@ jobs:
         if: always()
         run: |
           echo "執行 self-hosted runner 工作目錄清理..."
+          find .git -name "*.lock" -delete 2>/dev/null || rm -f .git/config.lock .git/index.lock .git/HEAD.lock 2>/dev/null || true
           rm -f .git/hooks/pre-push
           git config --unset-all url."https://x-access-token:${{ secrets.BOT_TOKEN || secrets.GH_TOKEN || github.token }}@github.com/".insteadOf 2>/dev/null || true
           git config --unset-all url."https://x-access-token:${{ github.token }}@github.com/".insteadOf 2>/dev/null || true

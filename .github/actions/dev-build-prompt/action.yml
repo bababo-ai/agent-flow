@@ -95,7 +95,7 @@ runs:
           }
         }
 
-        const newPrDesc = `從 \`${BASE}\` 開分支，命名 \`${PREFIX}${NUMBER}-<英文簡述>\`；照 issue 改程式，照 AGENTS.md 的規則驗證、寫變更記錄。commit（一律使用英文 Conventional Commits 格式，如 feat: ... 或 fix: ...）並 push，用 \`gh pr create --base ${BASE}\` 開 PR；說明照 AGENTS.md 的規則寫，包含「後續待辦」段落（這次沒做、之後要做或要注意的事，沒有就寫「無」），最後一行寫 \`Closes #${NUMBER}\``;
+        const newPrDesc = `開工第一件事：若留言有指定既有分支，或遠端已有此 issue 的開發分支（可先用 \`git branch -r --list "origin/${PREFIX}${NUMBER}-*"\` 檢查），請先切換到該分支繼續（\`git checkout -B <分支名稱> origin/<分支名稱>\`）；否則立刻從 \`${BASE}\` 開新分支並推送到遠端（\`git checkout -b ${PREFIX}${NUMBER}-<英文簡述> && git push -u origin <分支名稱>\`）。接著照 issue 改程式，照 AGENTS.md 的規則驗證、寫變更記錄。開發中有階段性進展請及早 commit 與 push（一律使用英文 Conventional Commits 格式，如 feat: ... 或 fix: ...）；若同一個錯誤反覆除錯超過 3 次仍無法解決，請不要無限重試耗盡輪數，先把目前進度 commit 並 push 到遠端分支（不要開 PR），再照下方規則處理後停止。全部完成且驗證通過後，用 \`gh pr create --base ${BASE}\` 開 PR；說明照 AGENTS.md 的規則寫，包含「後續待辦」段落（這次沒做、之後要做或要注意的事，沒有就寫「無」），最後一行寫 \`Closes #${NUMBER}\``;
         const beforePushDesc = `push 前先用 \`gh pr view ${NUMBER} --json state -q .state\` 確認還是 \`OPEN\`；不是 \`OPEN\`（已合併或關閉）就不要 push，用 \`gh pr comment\` 說明改了什麼、沒推上去的原因後停止。git push 被推送前檢查擋下時也一樣，不要用 \`--no-verify\` 繞過`;
 
         const pushSameBranch = 'commit（一律使用英文 Conventional Commits 格式）並 push 到同一個分支，不要開新的 PR';

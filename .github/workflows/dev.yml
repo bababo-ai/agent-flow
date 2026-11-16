@@ -343,6 +343,56 @@ jobs:
 
           agy "${agy_args[@]}"
 
+      # =========================================================================
+      # 中斷時救援未完成進度 (Rescue Commit)
+      # 當 issue 開發失敗（例如超過 max_turns 或逾時）時，自動將未提交變更或本地 commit 推上遠端保留
+      # =========================================================================
+      - name: 中斷時救援保留未完成變更 (Rescue Commit)
+        if: ${{ always() && steps.target.outputs.kind == 'issue' && (steps.claude.outcome == 'failure' || steps.agy.outcome == 'failure') }}
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || secrets.GH_TOKEN || github.token }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+          ISSUE_NUMBER: ${{ steps.target.outputs.number }}
+          PROVIDER: ${{ needs.gate.outputs.provider }}
+        shell: bash
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git config url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+          CURRENT_BRANCH=$(git branch --show-current || true)
+          DIRTY=$(git status --porcelain || true)
+          AHEAD=$(git rev-list --count "origin/${BASE_BRANCH}..HEAD" 2>/dev/null || echo 0)
+
+          if [ -n "$DIRTY" ] || [ "$AHEAD" -gt 0 ]; then
+            echo "偵測到開發進度（未提交修改或本地 commit），正在保存至遠端分支..."
+            if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" = "$BASE_BRANCH" ]; then
+              TARGET_BRANCH="${BRANCH_PREFIX}${ISSUE_NUMBER}-wip"
+              git checkout -B "$TARGET_BRANCH"
+            else
+              TARGET_BRANCH="$CURRENT_BRANCH"
+            fi
+
+            if [ -n "$DIRTY" ]; then
+              git add -A
+              git commit -m "chore(wip): auto-save progress before failure or turn limit" || true
+            fi
+
+            EXISTING_PR=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$TARGET_BRANCH" --state open --json number -q '.[0].number' 2>/dev/null || true)
+            if [ -n "$EXISTING_PR" ] && [ -z "$DIRTY" ]; then
+              echo "分支 $TARGET_BRANCH 已開啟 PR #$EXISTING_PR 且無未提交修改，無需重複救援。"
+            elif git push -u origin "$TARGET_BRANCH" --force-with-lease || git push -u origin "$TARGET_BRANCH" --force; then
+              gh issue comment "$ISSUE_NUMBER" --body "⚠️ 開發因超過對話輪數上限或逾時中斷。已自動將目前的程式碼進度保存至分支 \`$TARGET_BRANCH\`。可在 issue 留言 \`@${PROVIDER} 在 $TARGET_BRANCH 繼續處理\` 進行接關。" || true
+            else
+              echo "::warning::推送救援分支 $TARGET_BRANCH 失敗"
+            fi
+          else
+            echo "工作目錄與分支無任何程式碼變更，無需救援。"
+          fi
+
       # 通知時機：
       # - PR（審查叫醒、PR 上的留言）：AI 沒完成，或完成了但沒推新 commit（只回覆）
       # - issue（開工、issue 上的留言）：只在 AI 沒完成時通知；成功會開 PR，後面由審查流程接手通知

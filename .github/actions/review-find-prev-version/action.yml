@@ -74,8 +74,8 @@ runs:
         } catch (err) {}
 
         let desc = prev
-          ? `這是複審：上次審查版本為 \`${prev.slice(0, 7)}\`，總評已存於 \`.ai-prev-review.md\`。本次比對：\`git -C pr-head diff ${prev} ${HEAD_SHA}\`。`
-          : '這是第一次審查：請審查整個 PR 的改動。';
+          ? `This is a re-review: the previously reviewed version is \`${prev.slice(0, 7)}\`, and its review summary is saved in \`.ai-prev-review.md\`. Diff for this round: \`git -C pr-head diff ${prev} ${HEAD_SHA}\`.`
+          : 'This is the first review: review all changes in the PR.';
 
         fs.appendFileSync(GITHUB_OUTPUT, `desc<<AI_REVIEW_EOF\n${desc}\nAI_REVIEW_EOF\n`);
         EOF

@@ -291,7 +291,7 @@ jobs:
           claude_args: |
             --add-dir pr-head
             --max-turns ${{ inputs.review_max_turns }}
-            --allowedTools "Read,Glob,Grep,mcp__github_inline_comment__create_inline_comment,Bash(git -C pr-head diff:*),Bash(git -C pr-head log:*),Bash(gh pr view:*),Bash(gh issue view:*)"
+            --allowedTools "Read,Glob,Grep,mcp__github_inline_comment__create_inline_comment,Bash(git -C pr-head diff:*),Bash(git -C pr-head log:*),Bash(git -C pr-head show:*),Bash(git -C pr-head status:*),Bash(git -C pr-head blame:*),Bash(git -C pr-head ls-files:*),Bash(git -C pr-head ls-tree:*),Bash(git -C pr-head rev-parse:*),Bash(git -C pr-head merge-base:*),Bash(git -C pr-head cat-file:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*)"
             --json-schema '{"type":"object","properties":{"verdict":{"type":"string","enum":["pass","changes","suspicious"]},"high":{"type":"integer","minimum":0},"medium":{"type":"integer","minimum":0},"low":{"type":"integer","minimum":0},"summary":{"type":"string"}},"required":["verdict","high","medium","low","summary"]}'
 
       - name: 印出 Claude 審查除錯日誌（失敗時）
@@ -382,7 +382,7 @@ jobs:
           claude_args: |
             --add-dir pr-head
             --max-turns ${{ inputs.test_max_turns }}
-            --allowedTools "Read,Glob,Grep,Bash(gh pr view:*),Bash(gh issue view:*)${{ inputs.test_allowed_tools != '' && format(',{0}', inputs.test_allowed_tools) || '' }}"
+            --allowedTools "Read,Glob,Grep,Bash(git -C pr-head diff:*),Bash(git -C pr-head log:*),Bash(git -C pr-head show:*),Bash(git -C pr-head status:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*)${{ inputs.test_allowed_tools != '' && format(',{0}', inputs.test_allowed_tools) || '' }}"
             --json-schema '{"type":"object","properties":{"verdict":{"type":"string","enum":["pass","fail","incomplete"]},"summary":{"type":"string"}},"required":["verdict","summary"]}'
 
       - name: 印出 Claude 測試除錯日誌（失敗時）

@@ -59,19 +59,22 @@ runs:
           GITHUB_REPOSITORY, GITHUB_OUTPUT
         } = process.env;
 
-        let prompt = `你是「測試」角色，實際操作驗證、不改程式。REPO: ${GITHUB_REPOSITORY}，PR: #${PR_NUMBER}
-        測試環境啟動狀態：${STARTED || 'false'}（建立腳本結果：${SETUP_OUTCOME}）。
+        let prompt = `You are the "tester" role: verify by actually operating the system, do not modify code. REPO: ${GITHUB_REPOSITORY}, PR: #${PR_NUMBER}
+        Test environment started: ${STARTED || 'false'} (setup script outcome: ${SETUP_OUTCOME}).
         ${SETUP_DESC || ''}
+        Language: write the summary in Traditional Chinese (繁體中文).
         `;
 
-        if (PROMPT_FILE && fs.existsSync(PROMPT_FILE)) prompt += `\n測試工具與說明：\n${fs.readFileSync(PROMPT_FILE, 'utf-8')}\n`;
-        if (SMOKE_RESULT && SMOKE_RESULT !== 'none') prompt += `\n冒煙測試結果：${SMOKE_RESULT}。\n`;
-        if (CI_WORKFLOW) prompt += `\nCI 單元測試結果：${UNIT_RESULT || '無'}（連結：${UNIT_URL || '無'}）。\n`;
+        if (PROMPT_FILE && fs.existsSync(PROMPT_FILE)) prompt += `\nTest tools and instructions:\n${fs.readFileSync(PROMPT_FILE, 'utf-8')}\n`;
+        if (SMOKE_RESULT && SMOKE_RESULT !== 'none') prompt += `\nSmoke test result: ${SMOKE_RESULT}.\n`;
+        if (CI_WORKFLOW) prompt += `\nCI unit test result: ${UNIT_RESULT || 'none'} (link: ${UNIT_URL || 'none'}).\n`;
 
         prompt += `
-        1. 讀取驗收條件並逐條以工具實際操作驗證。
-        2. 若失敗請重跑一次確認，並檢附指令與輸出。
-        3. 報告寫在 summary 欄位。結論：pass、fail、incomplete。
+        1. Read the acceptance criteria and verify each one by actually operating the tools.
+        2. On a failure, rerun once to confirm, and include the command and its output.
+        3. Write the report in the summary field. Verdict: pass, fail, incomplete.
+
+        Tool limits: use Read, Grep, Glob to read and search files. Bash only allows the test tools listed in the instructions above, plus \`git -C pr-head <diff|log|show|status>\`, \`gh pr <view|diff|checks>\`, \`gh issue view\`, \`ls\`, \`cat\`, \`head\`, \`tail\`, \`wc\`, \`grep\`. When a command is denied by permissions, do not retry it in a different form. Do not install tools, language runtimes or system packages yourself; the test environment was prepared before you started. If a tool is missing or a required tool is denied so you cannot verify, set the verdict to incomplete and list the missing tools and the full denied commands in the summary.
         `;
 
         const delim = `AI_TEST_EOF_${Date.now()}`;

@@ -299,7 +299,7 @@ jobs:
           prompt: ${{ steps.prompt.outputs.text }}
           claude_args: |
             --max-turns ${{ inputs.max_turns }}
-            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(git:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr view:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr checks:*)${{ inputs.allowed_tools != '' && format(',{0}', inputs.allowed_tools) || '' }}"
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(git:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr view:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue list:*),Bash(gh run list:*),Bash(gh run view:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*),Bash(find:*),Bash(mkdir:*),Bash(touch:*),Bash(cp:*),Bash(mv:*),Bash(rm:*),Bash(go:*),Bash(cargo:*),Bash(rustc:*),Bash(python:*),Bash(python3:*),Bash(pip:*),Bash(pip3:*),Bash(pytest:*),Bash(uv:*),Bash(node:*),Bash(npm:*),Bash(npx:*),Bash(pnpm:*),Bash(yarn:*),Bash(make:*),Bash(sqlite3:*)${{ inputs.allowed_tools != '' && format(',{0}', inputs.allowed_tools) || '' }}"
 
       - name: 印出 Claude 除錯日誌（失敗時）
         if: ${{ always() && steps.claude.outcome == 'failure' }}
